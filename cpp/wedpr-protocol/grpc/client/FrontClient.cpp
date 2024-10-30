@@ -33,7 +33,6 @@ void FrontClient::onReceiveMessage(ppc::protocol::Message::Ptr const& msg, Recei
     msg->encode(encodedData);
     *request->mutable_data() =
         std::move(std::string_view((const char*)encodedData.data(), encodedData.size()));
-
     // The ClientContext instance used for creating an rpc must remain alive and valid for the
     // lifetime of the rpc
     auto context = std::make_shared<ClientContext>();

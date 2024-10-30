@@ -13,7 +13,7 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  *
- * @file Common.h
+ * @file RequestConverter.h
  * @author: yujiechen
  * @date 2021-04-12
  */
@@ -51,11 +51,10 @@ inline void setRouteInfo(
     route_info->set_topic(routeInfo->topic());
     route_info->set_componenttype(routeInfo->componentType());
     *(route_info->mutable_srcnode()) =
-        std::string_view((const char*)routeInfo->srcNode().data(), routeInfo->srcNode().size());
+        std::string((const char*)routeInfo->srcNode().data(), routeInfo->srcNode().size());
     *(route_info->mutable_dstnode()) =
-        std::string_view((const char*)routeInfo->dstNode().data(), routeInfo->dstNode().size());
-    *(route_info->mutable_dstinst()) =
-        std::string_view((const char*)routeInfo->dstInst().data(), routeInfo->dstInst().size());
+        std::string((const char*)routeInfo->dstNode().data(), routeInfo->dstNode().size());
+    *(route_info->mutable_dstinst()) = routeInfo->dstInst();
 }
 
 inline ppc::proto::SendedMessageRequest* generateRequest(std::string const& traceID,
@@ -67,10 +66,8 @@ inline ppc::proto::SendedMessageRequest* generateRequest(std::string const& trac
     request->set_routetype(uint16_t(routeType));
     // set the route information
     setRouteInfo(request->mutable_routeinfo(), routeInfo);
-    // set the payload(TODO: optimize here)
     *request->mutable_payload() =
         std::move(std::string_view((const char*)payload.data(), payload.size()));
-
     request->set_timeout(timeout);
     return request;
 }
