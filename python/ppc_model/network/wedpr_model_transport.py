@@ -6,6 +6,8 @@ from ppc_model.network.wedpr_model_transport_api import ModelTransportApi
 from ppc_model.network.wedpr_model_transport_api import ModelRouterApi
 from ppc_model.task.task_manager import TaskManager
 import time
+from readerwriterlock import rwlock
+from enum import Enum
 
 
 class ModelTransport(ModelTransportApi):
@@ -25,6 +27,10 @@ class ModelTransport(ModelTransportApi):
     def get_topic(task_id: str, task_type: str, agency: str):
         return f"{agency}_{task_id}_{task_type}"
 
+    @staticmethod
+    def get_topic_without_agency(task_id: str, task_type: str):
+        return f"{task_id}_{task_type}"
+
     def push_by_component(self, task_id: str, task_type: str, dst_inst: str, data):
         self.transport.push_by_component(topic=self.get_topic(task_id, task_type, dst_inst),
                                          dstInst=dst_inst,
@@ -38,18 +44,21 @@ class ModelTransport(ModelTransportApi):
                                       seq=seq, payload=payload,
                                       timeout=self.send_msg_timeout)
 
-    def pop(self, task_id: str, task_type: str, dst_inst: str) -> MessageAPI:
+    def pop_by_topic(self, topic, task_id) -> MessageAPI:
         while not self.task_manager.task_finished(task_id):
-            msg = self.transport.pop(topic=self.get_topic(
-                task_id, task_type, dst_inst), timeout_ms=self.pop_msg_timeout)
+            msg = self.transport.pop(
+                topic=topic, timeout_ms=self.pop_msg_timeout)
             # wait for the msg if the task is running
             if msg is None:
                 time.sleep(0.04)
             else:
                 return msg
         raise Exception(f"Not receive the message of topic:"
-                        f" {self.get_topic(task_id, task_type, dst_inst)} "
+                        f" {topic} "
                         f"even after the task has been killed!")
+
+    def pop(self, task_id: str, task_type: str, dst_inst: str) -> MessageAPI:
+        return self.pop_by_topic(topic=self.get_topic(task_id, task_type, dst_inst), task_id=task_id)
 
     def get_component_type(self):
         return self.component_type
@@ -62,37 +71,62 @@ class ModelTransport(ModelTransportApi):
         self.transport.stop()
 
 
+class BaseMessage(Enum):
+    Handshake = "Handshake"
+
+
 class ModelRouter(ModelRouterApi):
-    def __init__(self, logger, transport: ModelTransport, participant_id_list):
+    def __init__(self, logger, transport: ModelTransport):
         self.logger = logger
         self.transport = transport
-        self.participant_id_list = participant_id_list
+        # task_id=>{agency=>selectedNode}
         self.router_info = {}
-        for participant in self.participant_id_list:
-            self.__init_router__(participant)
+        self._rw_lock = rwlock.RWLockWrite()
 
-    def __init_router__(self, participant):
-        result = self.transport.select_node(route_type=RouteType.ROUTE_THROUGH_COMPONENT,
-                                            dst_agency=participant,
-                                            dst_component=self.transport.get_component_type())
-        self.logger.info(
-            f"__init_router__ for {participant}, result: {result}, component: {self.transport.get_component_type()}")
+    def handshake(self, task_id, participant):
+        self.logger.info(f"handshake with {participant}")
+        topic = ModelTransport.get_topic_without_agency(
+            task_id, BaseMessage.Handshake.value)
+        self.transport.transport.register_topic(topic)
+        self.transport.transport.push_by_topic(topic=topic,
+                                               dstInst=participant,
+                                               seq=0, payload=bytes(),
+                                               timeout=self.transport.send_msg_timeout)
+
+    def wait_for_handshake(self, task_id):
+        topic = ModelTransport.get_topic_without_agency(
+            task_id, BaseMessage.Handshake.value)
+        self.transport.transport.register_topic(topic)
+        result = self.transport.pop_by_topic(topic=topic, task_id=task_id)
+
         if result is None:
-            raise Exception(
-                f"No router can reach participant {participant}")
+            raise Exception(f"wait_for_handshake failed!")
         self.logger.info(
-            f"ModelRouter, select node {result} for participant {participant}, "
-            f"component: {self.transport.get_component_type()}")
-        self.router_info.update({participant: result})
-        return result
+            f"wait_for_handshake success, task: {task_id}, detail: {result}")
+        with self._rw_lock.gen_wlock():
+            from_inst = result.get_header().get_src_inst()
+            if task_id not in self.router_info.keys():
+                self.router_info.update({task_id: dict()})
+            self.router_info.get(task_id).update(
+                {from_inst: result.get_header().get_src_node().decode("utf-8")})
 
-    def __get_dstnode_by_participant(self, participant):
-        if participant in self.router_info.keys():
-            return self.router_info.get(participant)
-        return self.__init_router__(participant)
+    def on_task_finish(self, task_id):
+        topic = ModelTransport.get_topic_without_agency(
+            task_id, BaseMessage.Handshake.value)
+        self.transport.transport.unregister_topic(topic)
+        with self._rw_lock.gen_wlock():
+            if task_id in self.router_info.keys():
+                self.router_info.pop(task_id)
+
+    def __get_dstnode__(self, task_id, dst_agency):
+        with self._rw_lock.gen_rlock():
+            if task_id in self.router_info.keys() and dst_agency in self.router_info.get(task_id).keys():
+                return self.router_info.get(task_id).get(dst_agency)
+        raise Exception(
+            f"No Router  found for task {task_id}, dst_agency: {dst_agency}")
 
     def push(self, task_id: str, task_type: str, dst_agency: str, payload: bytes, seq: int = 0):
-        dst_node = self.__get_dstnode_by_participant(dst_agency)
+        dst_node = self.__get_dstnode__(task_id, dst_agency)
         self.transport.push_by_nodeid(
             task_id=task_id, task_type=task_type, dst_node=dst_node, payload=payload, seq=seq)
 

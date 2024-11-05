@@ -9,6 +9,7 @@ from ppc_common.deps_services import storage_loader
 from ppc_common.ppc_utils import common_func
 from ppc_common.ppc_async_executor.thread_event_manager import ThreadEventManager
 from wedpr_python_gateway_sdk.transport.impl.transport_loader import TransportLoader
+from ppc_model.network.wedpr_model_transport import ModelRouter
 from ppc_common.deps_services.mysql_storage import MySQLStorage
 from ppc_common.ppc_config.sql_storage_config_loader import SQLStorageConfigLoader
 from ppc_model.network.wedpr_model_transport import ModelTransport
@@ -54,6 +55,7 @@ class Initializer:
         self.pop_msg_timeout_ms = 60000
         # for UT
         self.transport = None
+        self.model_router = None
         # matplotlib 线程不安全，并行任务绘图增加全局锁
         self.plot_lock = plot_lock
         if plot_lock is None:
@@ -90,15 +92,14 @@ class Initializer:
         transport.start()
         self.logger().info(
             f"Start transport success, config: {transport.get_config().desc()}")
-        transport.register_component(component_type)
-        self.logger().info(
-            f"Register the component {component_type} success")
         self.transport = ModelTransport(transport=transport,
                                         self_agency_id=self_agency_id,
                                         task_manager=task_manager,
                                         component_type=component_type,
                                         send_msg_timeout_ms=send_msg_timeout_ms,
                                         pop_msg_timeout_ms=pop_msg_timeout_ms)
+        self.model_router = ModelRouter(logger=self.logger(),
+                                        transport=self.transport)
 
     def logger(self, name=None):
         if self.mock_logger is None:
