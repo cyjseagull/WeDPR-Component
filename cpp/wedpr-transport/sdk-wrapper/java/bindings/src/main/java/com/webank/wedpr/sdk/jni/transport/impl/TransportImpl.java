@@ -17,6 +17,7 @@ package com.webank.wedpr.sdk.jni.transport.impl;
 
 import com.webank.wedpr.sdk.jni.common.Common;
 import com.webank.wedpr.sdk.jni.common.Constant;
+import com.webank.wedpr.sdk.jni.common.ObjectMapperFactory;
 import com.webank.wedpr.sdk.jni.common.WeDPRSDKException;
 import com.webank.wedpr.sdk.jni.generated.*;
 import com.webank.wedpr.sdk.jni.generated.Error;
@@ -28,6 +29,7 @@ import com.webank.wedpr.sdk.jni.transport.handlers.GetPeersCallback;
 import com.webank.wedpr.sdk.jni.transport.handlers.MessageCallback;
 import com.webank.wedpr.sdk.jni.transport.handlers.MessageDispatcherCallback;
 import com.webank.wedpr.sdk.jni.transport.handlers.MessageErrorCallback;
+import com.webank.wedpr.sdk.jni.transport.model.ServiceMeta;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
@@ -449,5 +451,54 @@ public class TransportImpl implements WeDPRTransport {
             nodeList.add(result.get(i));
         }
         return nodeList;
+    }
+
+    private void parseServiceMeta(
+            List<ServiceMeta.EntryPointMeta> entryPointInfos, String serviceName, String meta) {
+        try {
+            if (StringUtils.isBlank(meta)) {
+                return;
+            }
+            ServiceMeta serviceMeta =
+                    ObjectMapperFactory.getObjectMapper().readValue(meta, ServiceMeta.class);
+            if (serviceMeta.getServiceInfos() == null || serviceMeta.getServiceInfos().isEmpty()) {
+                return;
+            }
+            for (ServiceMeta.EntryPointMeta entryPointMeta : serviceMeta.getServiceInfos()) {
+                if (entryPointMeta.getServiceName().equalsIgnoreCase(serviceName)) {
+                    entryPointInfos.add(entryPointMeta);
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("parseServiceMeta exception, meta: {}", meta, e);
+        }
+    }
+
+    @Override
+    public List<ServiceMeta.EntryPointMeta> getAliveEntryPoints(String serviceName) {
+        NodeInfoVec nodeInfoList = this.transport.getFront().getNodeDiscovery().getAliveNodeList();
+        List<ServiceMeta.EntryPointMeta> result = new ArrayList<>();
+        for (int i = 0; i < nodeInfoList.size(); i++) {
+            parseServiceMeta(result, serviceName, nodeInfoList.get(i).meta());
+        }
+        return result;
+    }
+
+    @Override
+    public void registerService(String serviceName, String entryPoint) throws Exception {
+        transportConfig
+                .getServiceMeta()
+                .addEntryPoint(new ServiceMeta.EntryPointMeta(serviceName, entryPoint));
+        // update the meta
+        this.transport
+                .getFront()
+                .updateMetaInfo(
+                        ObjectMapperFactory.getObjectMapper()
+                                .writeValueAsString(transportConfig.getServiceMeta()));
+    }
+
+    @Override
+    public TransportConfig getTransportConfig() {
+        return transportConfig;
     }
 }

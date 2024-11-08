@@ -11,7 +11,8 @@ from wedpr_python_gateway_sdk.transport.generated.wedpr_python_transport import 
 from wedpr_python_gateway_sdk.transport.api.transport_api import TransportAPI
 from wedpr_python_gateway_sdk.transport.impl.transport_config import TransportConfig
 import random
-
+from wedpr_python_gateway_sdk.transport.api.transport_api import EntryPointInfo
+from wedpr_python_gateway_sdk.transport.api.transport_api import ServiceMeta
 from enum import Enum
 import signal
 
@@ -31,6 +32,7 @@ class Transport(TransportAPI):
         self.__transport_config = transport_config
         self.__route_info_builder = RouteInfoBuilder(
             self.__transport.routeInfoBuilder())
+        self.service_meta = transport_config.service_meta
 
     def get_config(self) -> TransportConfig:
         return self.__transport_config
@@ -124,6 +126,26 @@ class Transport(TransportAPI):
     def unregister_component(self, component):
         result = self.__transport.getFront().unRegisterComponent(component)
         Transport.check_result("unregister_component", result)
+
+    def get_alive_entrypoints(self, service_name: str) -> [EntryPointInfo]:
+        alive_entrypoints = []
+        alive_node_list = self.__transport.getFront().getNodeDiscovery().getAliveNodeList()
+        if alive_node_list is None or len(alive_node_list) == 0:
+            return alive_entrypoints
+        for i in range(0, len(alive_node_list)):
+            alive_node_info = alive_node_list[i]
+            service_meta = ServiceMeta.decode(alive_node_info.meta())
+            if service_meta is None or service_meta.serviceInfos is None or len(service_meta.serviceInfos) == 0:
+                continue
+            for entrypoint_info in service_meta.serviceInfos:
+                if entrypoint_info.serviceName.lower() == service_name.lower():
+                    alive_entrypoints.append(entrypoint_info)
+        return alive_entrypoints
+
+    def register_service_info(self, service, entrypoint):
+        self.service_meta.serviceInfos.append(EntryPointInfo(
+            service_name=service, entrypoint=entrypoint))
+        self.__transport.getFront().updateMetaInfo(self.service_meta.encode())
 
 
 def signal_handler(sig, frame):

@@ -78,6 +78,17 @@ public:
         return m_peerRouter->selectTargetNodes(routeType, routeInfo);
     }
 
+    std::vector<ppc::protocol::INodeInfo::Ptr> getAliveNodeList() const override
+    {
+        auto aliveNodeList = m_localRouter->routerInfo()->nodeList();
+        std::vector<ppc::protocol::INodeInfo::Ptr> result;
+        for (auto const& it : aliveNodeList)
+        {
+            result.emplace_back(it.second);
+        }
+        return result;
+    }
+
 protected:
     virtual void onReceiveP2PMessage(
         bcos::boostssl::MessageFace::Ptr msg, bcos::boostssl::ws::WsSession::Ptr session);

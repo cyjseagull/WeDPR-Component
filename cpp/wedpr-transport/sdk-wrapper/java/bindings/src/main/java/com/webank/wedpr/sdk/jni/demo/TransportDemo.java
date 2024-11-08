@@ -25,6 +25,7 @@ import com.webank.wedpr.sdk.jni.transport.handlers.MessageDispatcherCallback;
 import com.webank.wedpr.sdk.jni.transport.handlers.MessageErrorCallback;
 import com.webank.wedpr.sdk.jni.transport.impl.RouteType;
 import com.webank.wedpr.sdk.jni.transport.impl.TransportImpl;
+import com.webank.wedpr.sdk.jni.transport.model.ServiceMeta;
 import com.webank.wedpr.sdk.jni.transport.model.TransportEndPoint;
 import java.util.List;
 import lombok.SneakyThrows;
@@ -128,6 +129,10 @@ public class TransportDemo {
         String listenIp = "0.0.0.0";
         TransportEndPoint endPoint = new TransportEndPoint(hostIp, listenIp, listenPort);
         transportConfig.setSelfEndPoint(endPoint);
+        String serviceName = "Service_Transport_DEMO";
+        String entrypPoint = hostIp + ":" + listenPort;
+        transportConfig.registerService(serviceName, entrypPoint);
+
         String grpcTarget = "ipv4:127.0.0.1:40600,127.0.0.1:40601";
         if (args.length > 3) {
             grpcTarget = args[3];
@@ -157,8 +162,22 @@ public class TransportDemo {
         // every 2s send a message
         Integer i = 0;
         String syncTopic = "sync_" + topic;
+        // update the service information
+        String serviceName2 = "Service_Transport_DEMO2";
+        transport.registerService(serviceName2, entrypPoint);
         while (true) {
             try {
+                // fetch the alive service information
+                List<ServiceMeta.EntryPointMeta> result =
+                        transport.getAliveEntryPoints(serviceName);
+                System.out.println(
+                        "#### getAliveEntryPoints1, result: " + StringUtils.join(result));
+
+                List<ServiceMeta.EntryPointMeta> result2 =
+                        transport.getAliveEntryPoints(serviceName2);
+                System.out.println(
+                        "#### getAliveEntryPoints2, result2: " + StringUtils.join(result2));
+
                 String payLoad = "testPayload" + i;
                 // send Message by nodeID
                 transport.asyncSendMessageByNodeID(

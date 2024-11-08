@@ -18,6 +18,7 @@
  * @date 2024-08-30
  */
 #include "FrontImpl.h"
+#include "NodeDiscovery.h"
 #include "ppc-utilities/Utilities.h"
 
 using namespace bcos;
@@ -34,11 +35,13 @@ FrontImpl::FrontImpl(std::shared_ptr<bcos::ThreadPool> threadPool,
     m_messageFactory(std::move(messageFactory)),
     m_routerInfoBuilder(std::move(routerInfoBuilder)),
     m_ioService(std::move(ioService)),
-    m_gatewayClient(gateway)
+    m_gatewayClient(gateway),
+    m_nodeDiscovery(std::make_shared<NodeDiscovery>(gateway))
 {
     m_nodeID = m_nodeInfo->nodeID().toBytes();
     m_callbackManager = std::make_shared<CallbackManager>(m_threadPool, m_ioService);
 }
+
 
 /**
  * @brief start the IFront
@@ -74,7 +77,13 @@ void FrontImpl::start()
         }
         FRONT_LOG(INFO) << "Front exit";
     });
+    if (m_nodeDiscovery)
+    {
+        m_nodeDiscovery->start();
+    }
 }
+
+
 /**
  * @brief stop the IFront
  *
@@ -103,6 +112,10 @@ void FrontImpl::stop()
         {
             m_thread->detach();
         }
+    }
+    if (m_nodeDiscovery)
+    {
+        m_nodeDiscovery->stop();
     }
 }
 
@@ -293,6 +306,13 @@ void FrontImpl::registerComponent(std::string const& component)
     auto ret = m_nodeInfo->addComponent(component);
     FRONT_LOG(INFO) << LOG_DESC("registerComponent") << LOG_KV("component", component)
                     << LOG_KV("insert", ret);
+}
+
+void FrontImpl::updateMetaInfo(std::string const& meta)
+{
+    // Note: the node will report the latest components
+    m_nodeInfo->setMeta(meta);
+    FRONT_LOG(INFO) << LOG_DESC("updateMetaInfo") << LOG_KV("meta", meta);
 }
 
 void FrontImpl::unRegisterComponent(std::string const& component)
