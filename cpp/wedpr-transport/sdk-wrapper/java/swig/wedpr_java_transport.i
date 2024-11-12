@@ -2,7 +2,6 @@
 
 %include "stdint.i"
 %include "typemaps.i"
-%include <exception.i>
 
 #if defined(SWIGJAVA)
 #if defined(SWIGWORDSIZE64)
@@ -255,6 +254,16 @@ WRAP(ppc::sdk::Transport)
 %ignore ppc::protocol::INodeInfo::setComponents;
 %ignore ppc::protocol::INodeInfoFactory;
 
+%include "exception.i"
+%exception {
+    try {
+        $action
+    }
+    catch (const std::exception& e) {
+        SWIG_JavaThrowException(jenv, SWIG_JavaRuntimeException, std::string(boost::diagnostic_information(e)).c_str());
+        return $null;
+    }
+}
 
 /*
 ///// tests  ///

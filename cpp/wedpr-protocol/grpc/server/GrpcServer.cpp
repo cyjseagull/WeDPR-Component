@@ -21,6 +21,7 @@
 #include "Common.h"
 #include "grpcpp/ext/proto_server_reflection_plugin.h"
 
+using namespace ppc;
 using namespace ppc::protocol;
 using namespace grpc;
 
@@ -43,14 +44,32 @@ void GrpcServer::start()
     builder.AddChannelArgument(GRPC_ARG_ALLOW_REUSEPORT, 0);
     // without authentication
     builder.AddListeningPort(m_config->listenEndPoint(), grpc::InsecureServerCredentials());
+    builder.SetMaxMessageSize(m_config->maxMsgSize());
+    builder.SetMaxSendMessageSize(m_config->maxSendMessageSize());
+    builder.SetMaxReceiveMessageSize(m_config->maxReceivedMessageSize());
     // register the service
     for (auto const& service : m_bindingServices)
     {
         builder.RegisterService(service.get());
     }
     m_server = std::unique_ptr<Server>(builder.BuildAndStart());
+    if (!m_server)
+    {
+        GRPC_SERVER_LOG(INFO) << LOG_DESC(
+                                     "GrpcServer BuildAndStart failed, please check the port has "
+                                     "been occupied or not")
+                              << LOG_KV("listenEndPoint", m_config->listenEndPoint());
+        BOOST_THROW_EXCEPTION(
+            WeDPRException() << bcos::errinfo_comment("BuildAndStart grpcServer failed for bind "
+                                                      "error, please check the listenPort, current "
+                                                      "listenEndPoint: " +
+                                                      m_config->listenEndPoint()));
+    }
     GRPC_SERVER_LOG(INFO) << LOG_DESC("GrpcServer start success!")
-                          << LOG_KV("listenEndPoint", m_config->listenEndPoint());
+                          << LOG_KV("listenEndPoint", m_config->listenEndPoint())
+                          << LOG_KV("maxMsgSize", m_config->maxMsgSize())
+                          << LOG_KV("maxSendMessageSize", m_config->maxSendMessageSize())
+                          << LOG_KV("maxReceivedMessageSize", m_config->maxReceivedMessageSize());
 }
 
 void GrpcServer::stop()

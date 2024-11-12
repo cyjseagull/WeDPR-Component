@@ -48,6 +48,13 @@ ProTransportImpl::ProTransportImpl(ppc::front::FrontConfig::Ptr config, int keep
     m_server->registerService(m_frontService);
 }
 
+ProTransportImpl::~ProTransportImpl()
+{
+    TRANSPORT_LOG(INFO) << LOG_DESC("stop pro transport");
+    stop();
+    TRANSPORT_LOG(INFO) << LOG_DESC("stop pro transport success");
+}
+
 void ProTransportImpl::start()
 {
     m_timer = std::make_shared<bcos::Timer>(m_keepAlivePeriodMs, "frontKeepAlive");
@@ -60,18 +67,39 @@ void ProTransportImpl::start()
         }
         transport->keepAlive();
     });
-    m_timer->start();
-    m_server->start();
-    // Note: the server is inited after start
-    m_frontService->setHealthCheckService(m_server->server()->GetHealthCheckService());
-    m_front->start();
+    if (m_timer)
+    {
+        m_timer->start();
+    }
+    if (m_server)
+    {
+        m_server->start();
+    }
+    if (m_frontService)
+    {
+        // Note: the server is inited after start
+        m_frontService->setHealthCheckService(m_server->server()->GetHealthCheckService());
+    }
+    if (m_front)
+    {
+        m_front->start();
+    }
 }
 
 void ProTransportImpl::stop()
 {
-    m_timer->stop();
-    m_server->stop();
-    m_front->stop();
+    if (m_timer)
+    {
+        m_timer->stop();
+    }
+    if (m_server)
+    {
+        m_server->stop();
+    }
+    if (m_front)
+    {
+        m_front->stop();
+    }
 }
 
 void ProTransportImpl::keepAlive()
