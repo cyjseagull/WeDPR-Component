@@ -613,10 +613,15 @@ void PPCConfig::loadCEMConfig(boost::property_tree::ptree const& _pt)
 
 void PPCConfig::loadMPCConfig(boost::property_tree::ptree const& _pt)
 {
-    m_mpcConfig.datasetHDFSPath = _pt.get<std::string>("mpc.dataset_hdfs_path", "./");
     m_mpcConfig.jobPath = _pt.get<std::string>("mpc.job_path", "./");
     m_mpcConfig.mpcRootPath = _pt.get<std::string>("mpc.mpc_root_path", "./");
     m_mpcConfig.mpcRootPathNoGateway = _pt.get<std::string>("mpc.mpc_root_path_no_gateway", "./");
     m_mpcConfig.readPerBatchLines = _pt.get<std::uint64_t>("mpc.read_per_batch_lines", 100000);
+    m_mpcConfig.threadPoolSize = _pt.get<int>("mpc.async_thread_pool_size", -1);
+    if (m_mpcConfig.threadPoolSize < 0)
+    {
+        m_mpcConfig.threadPoolSize = std::thread::hardware_concurrency();
+    }
+
     loadHDFSConfig(_pt);
 }

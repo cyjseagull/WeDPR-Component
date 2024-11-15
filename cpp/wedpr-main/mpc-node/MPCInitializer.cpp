@@ -56,12 +56,25 @@ void MPCInitializer::init(std::string const& _configPath)
     auto mpcConfig = m_config->mpcConfig();
     auto rpcFactory = std::make_shared<RpcFactory>(m_config->agencyID());
     m_rpc = rpcFactory->buildRpc(m_config, nullptr);
+
+    int threadPoolSize = mpcConfig.threadPoolSize;
+    auto threadPool = std::make_shared<bcos::ThreadPool>("mpc-pool", threadPoolSize);
+
+    INIT_LOG(INFO) << LOG_DESC("init the mpc threadpool")
+        << LOG_KV("threadPoolSize", threadPoolSize);
+
     auto mpcService = std::make_shared<MPCService>();
     mpcService->setMPCConfig(mpcConfig);
     mpcService->setStorageConfig(storageConfig);
+    mpcService->setThreadPool(threadPool);
+
     m_rpc->registerHandler("run", std::bind(&MPCService::runMpcRpc, mpcService,
                                       std::placeholders::_1, std::placeholders::_2));
+    m_rpc->registerHandler("asyncRun", std::bind(&MPCService::asyncRunMpcRpc, mpcService,
+                                      std::placeholders::_1, std::placeholders::_2));
     m_rpc->registerHandler("kill", std::bind(&MPCService::killMpcRpc, mpcService,
+                                       std::placeholders::_1, std::placeholders::_2));
+    m_rpc->registerHandler("query", std::bind(&MPCService::queryMpcRpc, mpcService,
                                        std::placeholders::_1, std::placeholders::_2));
     INIT_LOG(INFO) << LOG_DESC("init the mpc rpc success");
     // init the transport

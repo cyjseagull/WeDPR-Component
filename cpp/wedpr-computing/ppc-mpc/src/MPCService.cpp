@@ -24,8 +24,10 @@
 #include "ppc-io/src/DataResourceLoaderImpl.h"
 #include "ppc-io/src/FileLineReader.h"
 #include "ppc-io/src/FileLineWriter.h"
+#include "ppc-io/src/FileSystemDeleter.h"
 #include "ppc-storage/src/FileStorageFactoryImpl.h"
 #include <bcos-utilities/DataConvertUtility.h>
+#include <mutex>
 #include <stdlib.h>
 #include <tbb/parallel_for.h>
 #include <boost/filesystem/operations.hpp>
@@ -45,134 +47,339 @@ using namespace ppc::tools;
 using namespace ppc::storage;
 using namespace ppc::rpc;
 
-void MPCService::removeAllFiles(const std::vector<std::string> &files)
+bool MPCService::addJobIfNotRunning(const JobInfo& jobInfo)
 {
-    for (const auto &file : files)
+    std::lock_guard<std::mutex> l(x_job2Status);
+    auto it = m_job2Status.find(jobInfo.jobId);
+    if (it != m_job2Status.end())
     {
-        if (file.empty())
-        {
-            continue;
-        }
-        try {
-            if (boost::filesystem::exists(file))
-            {
-                boost::filesystem::remove_all(file);
+        MPC_LOG(INFO) << LOG_DESC("[MPCService][addJob]") 
+                << "job already exists"
+                << LOG_KV("jobId", jobInfo.jobId)
+                << LOG_KV("code", it->second.code)
+                << LOG_KV("message", it->second.message);
 
-                MPC_LOG(INFO) << LOG_DESC("[MPCService][removeAllFiles]")
-                      << LOG_KV("file", file);
-            }
-        } catch (...) {
-            MPC_LOG(INFO) << LOG_DESC("[MPCService][removeAllFiles]")
-                      << LOG_DESC("remove file exception")
-                      << LOG_KV("file", file);
+        if (it->second.status == MPC_JOB_RUNNNING) 
+        {
+            // job is running
+            return false;
         }
+       
+        m_job2Status.erase(it);
     }
+
+    JobStatus jobStatus;
+    jobStatus.jobId = jobInfo.jobId;
+    jobStatus.status = MPC_JOB_RUNNNING;
+    jobStatus.message = "job is running";
+    jobStatus.startTimeMs = utcSteadyTime();
+    jobStatus.timeCostMs = 0;
+
+    m_job2Status[jobInfo.jobId] = jobStatus;
+    m_runningJobs.insert(jobInfo.jobId);
+
+    MPC_LOG(INFO) << LOG_DESC("[MPCService][addJob]") 
+                << "job added successfully"
+                << LOG_KV("jobId", jobInfo.jobId)
+                << LOG_KV("runningJobsCount", m_runningJobs.size())
+                ;
+    return true;
 }
 
-void MPCService::doRun(Json::Value const& request, Json::Value& response)
+bool MPCService::queryJobStatus(const std::string &jobId, JobStatus &jobStatus)
+{
+    std::lock_guard<std::mutex> l(x_job2Status);
+    auto it = m_job2Status.find(jobId);
+    if (it == m_job2Status.end())
+    {
+        MPC_LOG(DEBUG) << LOG_DESC("[MPCService][queryJobStatus]") 
+                << "job does not exist"
+                << LOG_KV("jobId", jobId);
+        return false;
+    }
+
+    jobStatus = it->second;
+
+    MPC_LOG(INFO) << LOG_DESC("[MPCService][queryJobStatus]") 
+                << "find job"
+                << LOG_KV("jobId", jobId)
+                << LOG_KV("code", jobStatus.code)
+                << LOG_KV("message", jobStatus.message)
+                << LOG_KV("timeCostMs", jobStatus.timeCostMs);
+    return true;
+}
+
+void MPCService::onFinish(const std::string &jobId, const std::string &msg)
+{
+    std::lock_guard<std::mutex> l(x_job2Status);
+    m_runningJobs.erase(jobId);
+    auto it = m_job2Status.find(jobId);
+    if (it == m_job2Status.end())
+    {
+        MPC_LOG(ERROR) << LOG_DESC("[MPCService][onFinish]") 
+                << "job does not exist"
+                << LOG_KV("jobId", jobId);
+        return;
+    }
+
+    JobStatus &jobStatus = it->second;
+    jobStatus.status = MPC_JOB_COMPLETED;
+    jobStatus.message = msg;
+    jobStatus.timeCostMs = utcSteadyTime() - jobStatus.startTimeMs;
+
+    MPC_LOG(INFO) << LOG_DESC("[MPCService][onFinish]") 
+                << "job finished"
+                << LOG_KV("jobId", jobId)
+                << LOG_KV("timeCostMs", jobStatus.timeCostMs)
+                ;
+}
+
+void MPCService::onFailed(const std::string &jobId, const std::string &msg)
+{
+    std::lock_guard<std::mutex> l(x_job2Status);
+    m_runningJobs.erase(jobId);
+    auto it = m_job2Status.find(jobId);
+    if (it == m_job2Status.end())
+    {
+        MPC_LOG(ERROR) << LOG_DESC("[MPCService][onFailed]") 
+                << "job does not exist"
+                << LOG_KV("jobId", jobId);
+        return;
+    }
+
+    JobStatus &jobStatus = it->second;
+    jobStatus.status = MPC_JOB_FAILED;
+    jobStatus.message = msg;
+    jobStatus.timeCostMs = utcSteadyTime() - jobStatus.startTimeMs;
+
+    MPC_LOG(INFO) << LOG_DESC("[MPCService][onFailed]") 
+                << LOG_KV("jobId", jobId)
+                << LOG_KV("msg", msg) 
+                << LOG_KV("timeCostMs", jobStatus.timeCostMs);
+}
+
+
+void MPCService::onKill(const std::string &jobId, const std::string &msg)
+{
+    std::lock_guard<std::mutex> l(x_job2Status);
+    m_runningJobs.erase(jobId);
+    auto it = m_job2Status.find(jobId);
+    if (it == m_job2Status.end())
+    {
+        MPC_LOG(ERROR) << LOG_DESC("[MPCService][onKill]") 
+                << "job does not exist"
+                << LOG_KV("jobId", jobId);
+        return;
+    }
+
+    JobStatus &jobStatus = it->second;
+    jobStatus.status = MPC_JOB_KILLED;
+    jobStatus.message = msg;
+    jobStatus.timeCostMs = utcSteadyTime() - jobStatus.startTimeMs;
+
+    MPC_LOG(INFO) << LOG_DESC("[MPCService][onKill]") 
+                << "job is killed"
+                << LOG_KV("jobId", jobId)
+                << LOG_KV("timeCostMs", jobStatus.timeCostMs)
+                ;
+}
+
+void MPCService::doRun(const JobInfo& jobInfo) 
 {
     auto startT = utcSteadyTime();
-
-    std::string localPathPrefix;
-    std::string mpcFileLocalPath;
-    try
-    {  // 0 get jobInfo and make command
-        auto jobInfo = paramsToJobInfo(request);
-
-        std::string jobId = jobInfo.jobId;
-        int participantCount = jobInfo.participantCount;
-        int selfIndex = jobInfo.selfIndex;
-
-        std::string mpcCmd;
-        makeCommand(mpcCmd, jobInfo);
-
-        localPathPrefix =
+    
+    std::string mpcFileHdfsPath = jobInfo.mpcFilePath;
+    std::string mpcRootPath = m_mpcConfig.mpcRootPathNoGateway;
+    if (jobInfo.mpcNodeUseGateway)
+    {
+        mpcRootPath = m_mpcConfig.mpcRootPath;
+    }
+    std::string localPathPrefix =
             m_mpcConfig.jobPath + PATH_SEPARATOR + jobInfo.jobId + PATH_SEPARATOR;
-
-        // 1 download mpc algorithm file
-        std::string mpcFileHdfsPath = jobInfo.mpcFilePath;
-        std::string mpcRootPath = m_mpcConfig.mpcRootPathNoGateway;
-        if (jobInfo.mpcNodeUseGateway)
-        {
-            mpcRootPath = m_mpcConfig.mpcRootPath;
-        }
-        
-        mpcFileLocalPath =
+    std::string  mpcFileLocalPath =
             mpcRootPath + MPC_RELATIVE_PATH + jobInfo.jobId + MPC_ALGORITHM_FILE_SUFFIX;
 
-        auto mpcFileReader =
-                initialize_lineReader(jobInfo, mpcFileHdfsPath, DataResourceType::HDFS);
-        auto mpcFileWriter =
-                initialize_lineWriter(jobInfo, mpcFileLocalPath, DataResourceType::FILE);
-            readAndSaveFile(mpcFileHdfsPath, mpcFileLocalPath, mpcFileReader, mpcFileWriter);
+    FileSystemDeleter fileSystemDeleter({localPathPrefix, mpcFileLocalPath});
 
+    // 0 get jobInfo and make command
+    std::string jobId = jobInfo.jobId;
+    int participantCount = jobInfo.participantCount;
+    int selfIndex = jobInfo.selfIndex;
 
-        // 2 download mpc prepare file
-        std::string mpcPrepareFileHdfsPath = jobInfo.inputFilePath;
-        
-        // std::string inputFilePath =
-        // m_mpcConfig.jobPath + PATH_SEPARATOR + jobInfo.jobId + PATH_SEPARATOR + MPC_PREPARE_FILE;
+    std::string mpcCmd;
+    makeCommand(mpcCmd, jobInfo);
 
-        std::string mpcPrepareFileLocalPath = localPathPrefix + MPC_PREPARE_FILE + "-P" + std::to_string(selfIndex) + "-0";
-        auto datasetFileReader =
-                initialize_lineReader(jobInfo, mpcPrepareFileHdfsPath, DataResourceType::HDFS);
-            auto datasetFileWriter =
-                initialize_lineWriter(jobInfo, mpcPrepareFileLocalPath, DataResourceType::FILE);
-            readAndSaveFile(mpcPrepareFileHdfsPath, mpcPrepareFileLocalPath, datasetFileReader, datasetFileWriter);
+    // 1 download mpc algorithm file
+    auto mpcFileReader =
+            initialize_lineReader(jobInfo, mpcFileHdfsPath, DataResourceType::HDFS);
+    auto mpcFileWriter =
+            initialize_lineWriter(jobInfo, mpcFileLocalPath, DataResourceType::FILE);
+    readAndSaveFile(mpcFileHdfsPath, mpcFileLocalPath, mpcFileReader, mpcFileWriter);
 
-        // 3 run mpc job
-        int outExitStatus = MPC_SUCCESS;
-        std::string outResult;
-        execCommand(mpcCmd, outExitStatus, outResult);
+    // 2 download mpc prepare file
+    std::string mpcPrepareFileHdfsPath = jobInfo.inputFilePath;
+    
+    std::string mpcPrepareFileLocalPath = localPathPrefix + MPC_PREPARE_FILE + "-P" + std::to_string(selfIndex) + "-0";
+    auto datasetFileReader =
+            initialize_lineReader(jobInfo, mpcPrepareFileHdfsPath, DataResourceType::HDFS);
+    auto datasetFileWriter =
+            initialize_lineWriter(jobInfo, mpcPrepareFileLocalPath, DataResourceType::FILE);
+    readAndSaveFile(mpcPrepareFileHdfsPath, mpcPrepareFileLocalPath, datasetFileReader, datasetFileWriter);
 
-        if (outExitStatus != MPC_SUCCESS)
-        {
-            removeAllFiles(std::vector<std::string>{localPathPrefix, mpcFileLocalPath});
-            MPC_LOG(ERROR) << LOG_DESC("[MPCService][doRun]") 
-                << "run mpc job failed"
-                << LOG_KV("jobId", jobId)
-                << LOG_KV("outExitStatus", outExitStatus)
-                << LOG_KV("outResult", outResult);
-            BOOST_THROW_EXCEPTION(RunMpcFailException() << errinfo_comment(outResult));
-        }
-        
-        std::string message = "run mpc job successfully";
-        MPC_LOG(INFO) << LOG_DESC("[MPCService][doRun]") << LOG_KV("jobId", jobId) << LOG_DESC(message);
-        // MPC_LOG(DEBUG) << LOG_DESC("[MPCService][doRun]") << LOG_KV("jobId", jobId) << LOG_KV("outResult", outResult);
+    // 3 run mpc job
+    int outExitStatus = MPC_SUCCESS;
+    std::string outResult;
+    execCommand(mpcCmd, outExitStatus, outResult);
+
+    if (outExitStatus != MPC_SUCCESS)
+    {
+        MPC_LOG(ERROR) << LOG_DESC("[MPCService][doRun]") 
+            << "run mpc job failed"
+            << LOG_KV("jobId", jobId)
+            << LOG_KV("outExitStatus", outExitStatus)
+            << LOG_KV("outResult", outResult);
+        BOOST_THROW_EXCEPTION(RunMpcFailException() << errinfo_comment(outResult));
+    }
+
+    MPC_LOG(INFO) << LOG_DESC("[MPCService][doRun]") << LOG_KV("jobId", jobId) 
+        << LOG_DESC("run mpc job successfully");
+
+    // 4 upload result file
+    std::string resultFileHdfsPath =  jobInfo.outputFilePath;
+    std::string resultFileLocalPath = localPathPrefix + MPC_RESULT_FILE;
+    writeStringToFile(outResult, resultFileLocalPath);
+
+    auto resultFileReader =
+        initialize_lineReader(jobInfo, resultFileLocalPath, DataResourceType::FILE);
+    auto resultFileWriter =
+        initialize_lineWriter(jobInfo, resultFileHdfsPath, DataResourceType::HDFS);
+    readAndSaveFile(resultFileLocalPath, resultFileHdfsPath, resultFileReader, resultFileWriter);
+
+    MPC_LOG(INFO) << LOG_DESC("do run mpc") << LOG_KV("jodId", jobInfo.jobId)<< LOG_KV("timecost(ms)", utcSteadyTime() - startT);
+}
+
+void MPCService::queryMpcRpc(Json::Value const& request, RespFunc func)
+{
+    auto jobId = request["jobId"].asString();
+
+    JobStatus jobStatus;
+    auto result = queryJobStatus(jobId, jobStatus);
+
+    Json::Value response;
+    if (result)
+    {
         response["code"] = MPC_SUCCESS;
-        response["message"] = "success";
+        response["status"] = jobStatus.status;
+        response["message"] = jobStatus.message;
+        response["timeCostMs"] = jobStatus.timeCostMs;
+    } 
+    else 
+    {
+        response["code"] = MPC_FAILED;
+        response["status"] = "";
+        response["message"] = "job does not exist";
+        response["timeCostMs"] = -1;
+    }
 
-        // 4 upload result file
-        std::string resultFileHdfsPath =  jobInfo.outputFilePath;
-        std::string resultFileLocalPath = localPathPrefix + MPC_RESULT_FILE;
-        writeStringToFile(outResult, resultFileLocalPath);
+    func(nullptr, std::move(response));
+}
 
-        auto resultFileReader =
-            initialize_lineReader(jobInfo, resultFileLocalPath, DataResourceType::FILE);
-        auto resultFileWriter =
-            initialize_lineWriter(jobInfo, resultFileHdfsPath, DataResourceType::HDFS);
-        readAndSaveFile(resultFileLocalPath, resultFileHdfsPath, resultFileReader, resultFileWriter);
-
-        removeAllFiles(std::vector<std::string>{localPathPrefix, mpcFileLocalPath});
+void MPCService::runMpcRpcByJobInfo(const JobInfo& jobInfo)
+{
+    try
+    {
+        doRun(jobInfo);
+        onFinish(jobInfo.jobId, "run mpc job successfully");
     }
     catch (const std::exception& e)
     {
-        removeAllFiles(std::vector<std::string>{localPathPrefix, mpcFileLocalPath});
-
-        const std::string diagnostic_information = std::string(boost::diagnostic_information(e));
-        MPC_LOG(INFO) << LOG_DESC("[MPCService][doRun]") << LOG_DESC("run mpc job failed")
-                      << LOG_DESC(diagnostic_information);
-        response["code"] = MPC_FAILED;
-        response["message"] = diagnostic_information;
+        onFailed(jobInfo.jobId, boost::diagnostic_information(e));
     }
-
-    MPC_LOG(INFO) << LOG_DESC("run mpc") << LOG_KV("request",  request.toStyledString())<< LOG_KV("timecost(ms)", utcSteadyTime() - startT);
 }
 
 void MPCService::runMpcRpc(Json::Value const& request, RespFunc func)
 {
     Json::Value response;
-    doRun(request, response);
+    
+    try
+    {
+        auto jobInfo = paramsToJobInfo(request);
+        auto r = addJobIfNotRunning(jobInfo);
+        if (r)
+        {  
+            doRun(jobInfo);
+            onFinish(jobInfo.jobId, "run mpc job successfully");
+
+            response["code"] = MPC_SUCCESS;
+            response["message"] = "success";
+        }
+        else 
+        {
+            response["code"] = MPC_DUPLICATED;
+            response["message"] = "duplicated submit job";
+        }
+    }
+    catch (const std::exception& e)
+    {
+        const std::string diagnostic_information = std::string(boost::diagnostic_information(e));
+
+        MPC_LOG(ERROR) << LOG_DESC("[MPCService][runMpcRpc]") << LOG_DESC("run mpc submit job failed")
+                      << LOG_DESC(diagnostic_information)
+                      << LOG_KV("request", request.toStyledString());
+
+        response["code"] = MPC_FAILED;
+        response["message"] = diagnostic_information;
+    }
+
+    func(nullptr, std::move(response));
+}
+
+void MPCService::asyncRunMpcRpc(Json::Value const& request, RespFunc func)
+{
+    Json::Value response;
+
+    try
+    {
+        auto jobInfo = paramsToJobInfo(request);
+        auto r = addJobIfNotRunning(jobInfo);
+
+        if (r)
+        {  
+            response["code"] = MPC_SUCCESS;
+            response["message"] = "success";
+        }
+        else 
+        {
+            response["code"] = MPC_DUPLICATED;
+            response["message"] = "duplicated submit job";
+        }
+
+        MPC_LOG(INFO) << LOG_DESC("[MPCService][asyncRunMpcRpc]") << LOG_DESC("async run mpc submit job successfully")
+                      << LOG_KV("request", request.toStyledString())
+                      << LOG_KV("response", response.toStyledString());
+
+        // async run mpc job
+        m_threadPool->enqueue([self = weak_from_this(), jobInfo]() {
+            auto service = self.lock();
+            if (!service)
+            {
+                return;
+            }
+            service->runMpcRpcByJobInfo(jobInfo);
+        });
+    }
+    catch (const std::exception& e)
+    {
+        const std::string diagnostic_information = std::string(boost::diagnostic_information(e));
+
+        MPC_LOG(ERROR) << LOG_DESC("[MPCService][asyncRunMpcRpc]") << LOG_DESC("async run mpc submit job failed")
+                      << LOG_DESC(diagnostic_information)
+                      << LOG_KV("request", request.toStyledString());
+
+        response["code"] = MPC_FAILED;
+        response["message"] = diagnostic_information;
+    }
+
     func(nullptr, std::move(response));
 }
 
@@ -186,7 +393,7 @@ void MPCService::doKill(Json::Value const& request, Json::Value& response)
 
         std::string killCmd = "ps -ef |grep mpc | grep " + jobId +
                               " | grep -v grep | awk '{print $2}' | xargs kill -9";
-        MPC_LOG(INFO) << LOG_DESC("[MPCService][doKill]") << LOG_KV("killCmd", killCmd);
+        MPC_LOG(INFO) << LOG_DESC("[MPCService][doKill]") << LOG_KV("jobId", jobId) << LOG_KV("killCmd", killCmd);
 
         int outExitStatus = 0;
         std::string outResult;
@@ -195,14 +402,17 @@ void MPCService::doKill(Json::Value const& request, Json::Value& response)
         if (outExitStatus == 0)
         {
             message = "Kill mpc job successfully";
-            MPC_LOG(INFO) << LOG_DESC("[MPCService][doKill]") << LOG_DESC(message);
+            onKill(jobId, message);
+            MPC_LOG(INFO) << LOG_DESC("[MPCService][doKill]") << LOG_KV("jobId", jobId) << LOG_DESC(message);
             response["code"] = MPC_SUCCESS;
             response["message"] = "success";
         }
         else
         {
             message = "Kill mpc job failed";
-            MPC_LOG(INFO) << LOG_DESC("[MPCService][doKill]") << LOG_DESC(message);
+            MPC_LOG(INFO) << LOG_DESC("[MPCService][doKill]") << LOG_KV("jobId", jobId) << LOG_DESC(message)
+                << LOG_KV("outExitStatus", outExitStatus)
+                << LOG_KV("outResult", outResult);
             response["code"] = MPC_FAILED;
             response["message"] = message;
         }
@@ -215,7 +425,9 @@ void MPCService::doKill(Json::Value const& request, Json::Value& response)
         response["code"] = MPC_FAILED;
         response["message"] = diagnostic_information;
     }
-    MPC_LOG(INFO) << LOG_DESC("kill mpc job") << LOG_KV("timecost(ms)", utcSteadyTime() - startT);
+    MPC_LOG(INFO) << LOG_DESC("kill mpc job") 
+        << LOG_KV("request", response.toStyledString())
+        << LOG_KV("timecost(ms)", utcSteadyTime() - startT);
 }
 
 void MPCService::killMpcRpc(Json::Value const& request, RespFunc func)
@@ -360,7 +572,6 @@ void MPCService::makeCommand(std::string& cmd, const JobInfo& jobInfo)
             << LOG_KV("mpcRootPath", mpcRootPath)
             << LOG_KV("ret", r)
             << LOG_KV("jobId", jobId);
-            ;
     }
     std::string compileFilePath = mpcRootPath + PATH_SEPARATOR + MPC_ALGORITHM_COMPILER;
     int participantCount = jobInfo.participantCount;
@@ -375,7 +586,6 @@ void MPCService::makeCommand(std::string& cmd, const JobInfo& jobInfo)
         MPC_LOG(ERROR) << LOG_DESC("[MPCService] compile file not exist") 
             << LOG_KV("compileFilePath", compileFilePath)
             << LOG_KV("jobId", jobId);
-            ;
 
         BOOST_THROW_EXCEPTION(MpcCompilerNotExistException()
                               << errinfo_comment("compile file not exist:" + compileFilePath));

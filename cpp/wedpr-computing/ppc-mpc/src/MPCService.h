@@ -25,19 +25,35 @@
 #include "ppc-tools/src/config/MPCConfig.h"
 #include "ppc-tools/src/config/StorageConfig.h"
 #include <bcos-utilities/Common.h>
+#include <bcos-utilities/ThreadPool.h>
+#include <bcos-utilities/Timer.h>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 
 namespace ppc::mpc
 {
-class MPCService
+class MPCService: std::enable_shared_from_this<MPCService>
 {
 public:
     using Ptr = std::shared_ptr<MPCService>;
     MPCService() = default;
-    virtual ~MPCService() = default;
+    virtual ~MPCService() 
+    {
+        if (m_threadPool)
+        {
+            m_threadPool->stop();
+        }
+    }
 
     void runMpcRpc(Json::Value const& request, ppc::rpc::RespFunc func);
     void killMpcRpc(Json::Value const& request, ppc::rpc::RespFunc func);
+    void asyncRunMpcRpc(Json::Value const& request, ppc::rpc::RespFunc func);
+    void queryMpcRpc(Json::Value const& request, ppc::rpc::RespFunc func);
+
+    void runMpcRpcByJobInfo(const JobInfo& jobInfo);
+
     void setMPCConfig(ppc::tools::MPCConfig const& mpcConfig);
     void setStorageConfig(ppc::tools::StorageConfig const& storageConfig);
 
@@ -45,8 +61,14 @@ public:
     void makeCommand(std::string& cmd, const JobInfo& jobInfo);
     void getMpcProtocol(const int participantCount, const bool isMalicious,
         std::string& mpcBinFileName, std::string& compileOption);
-    void doRun(Json::Value const& request, Json::Value& response);
+
+    void doRun(const JobInfo& jobInfo);
     void doKill(Json::Value const& request, Json::Value& response);
+
+    void onFinish(const std::string &jobId, const std::string &msg);
+    void onFailed(const std::string &jobId, const std::string &msg);
+    void onKill(const std::string &jobId, const std::string &msg);
+
     void execCommand(const std::string cmd, int& outExitStatus, std::string& outResult);
 
     void writeStringToFile(const std::string& content, const std::string& filePath);
@@ -56,10 +78,22 @@ public:
     ppc::io::LineWriter::Ptr initialize_lineWriter(const JobInfo& jobInfo,
         const std::string& writerFilePath, ppc::protocol::DataResourceType type);
 
-    void removeAllFiles(const std::vector<std::string> &files);
+    void setThreadPool(std::shared_ptr<bcos::ThreadPool> threadPool)
+    {
+        m_threadPool = threadPool;
+    }
+
+    bool addJobIfNotRunning(const JobInfo& jobInfo);
+
+    bool queryJobStatus(const std::string &jobId, JobStatus &jobStatus);
 
 private:
+    std::mutex x_job2Status;
+    std::unordered_map<std::string, JobStatus> m_job2Status;
+    std::unordered_set<std::string> m_runningJobs;
     ppc::tools::MPCConfig m_mpcConfig;
     ppc::tools::StorageConfig m_storageConfig;
+
+    std::shared_ptr<bcos::ThreadPool> m_threadPool;
 };
 }  // namespace ppc::mpc

@@ -25,10 +25,10 @@ namespace ppc::tools
 {
 struct MPCConfig
 {
-    std::string datasetHDFSPath;
     std::string jobPath;
     std::string mpcRootPath;
     std::string mpcRootPathNoGateway;
     uint64_t readPerBatchLines;
+    int threadPoolSize;
 };
 }  // namespace ppc::tools
