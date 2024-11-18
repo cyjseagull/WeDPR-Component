@@ -45,8 +45,25 @@ struct JobInfo
     std::string gatewayEngineEndpoint;
 };
 
+// job status
+struct JobStatus
+{
+    std::string jobId;
+    std::string status;
+    std::string message;
+    int64_t startTimeMs;
+    int64_t timeCostMs;
+};
+
+const std::string MPC_JOB_RUNNNING = "RUNNING";
+const std::string MPC_JOB_COMPLETED = "COMPLETED";
+const std::string MPC_JOB_FAILED = "FAILED";
+const std::string MPC_JOB_KILLED = "KILLED";
+
 const int MPC_SUCCESS = 0;
+const int MPC_DUPLICATED = 1;
 const int MPC_FAILED = -1;
+
 const std::string PATH_SEPARATOR = "/";
 const std::string MPC_RELATIVE_PATH = "/Programs/Source/";
 const std::string MPC_ALGORITHM_FILE_SUFFIX = ".mpc";
