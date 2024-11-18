@@ -43,7 +43,7 @@ public:
 
     using Ptr = std::shared_ptr<PPCMessage>;
     PPCMessage() { m_data = std::make_shared<bcos::bytes>(); }
-    ~PPCMessage() override = default;
+    ~PPCMessage() override { releasePayload(); }
 
     uint8_t version() const override { return m_version; }
     void setVersion(uint8_t _version) override { m_version = _version; }
@@ -86,6 +86,16 @@ public:
     void setSenderNode(bcos::bytes const& senderNode) override { m_senderNode = senderNode; }
 
     bcos::bytes const& senderNode() const override { return m_senderNode; }
+
+    void releasePayload() override
+    {
+        if (!m_data)
+        {
+            return;
+        }
+        m_data->clear();
+        bcos::bytes().swap(*m_data);
+    }
 
 protected:
     std::string encodeMap(const std::map<std::string, std::string>& _map);

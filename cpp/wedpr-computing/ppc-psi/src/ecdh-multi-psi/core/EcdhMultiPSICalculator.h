@@ -15,25 +15,20 @@ public:
 
     virtual ~EcdhMultiPSICalculator()
     {
-        if (m_originInputs)
-        {
-            m_originInputs->setData(std::vector<bcos::bytes>());
-        }
         MallocExtension::instance()->ReleaseFreeMemory();
-        ECDH_MULTI_LOG(INFO) << LOG_DESC("the calculator destroyed") << LOG_KV("taskID", m_taskID);
+        ECDH_CAL_LOG(INFO) << LOG_DESC("the calculator destroyed") << LOG_KV("taskID", m_taskID);
     }
 
     virtual void asyncStartRunTask(ppc::protocol::Task::ConstPtr _task);
-    virtual void onHandlerIntersectEncryptSetToCalculator(PSIMessageInterface::Ptr _msg);
-    virtual void onHandlerEncryptSetToCalculator(PSIMessageInterface::Ptr _msg);
+    virtual void onReceiveIntersecCipher(PSIMessageInterface::Ptr _msg);
+    virtual void onReceiveMasterCipher(PSIMessageInterface::Ptr _msg);
 
     const std::string& taskID() const { return m_taskID; }
 
 protected:
     virtual bcos::bytes generateRandomA(std::string _taskID);
-    virtual void InitAsyncTask(ppc::protocol::Task::ConstPtr _task);
-    virtual void computeAndEncryptSet(std::string _taskID, bcos::bytes _randA);
-    virtual void syncResultToAllPeers();
+    virtual void initTask(ppc::protocol::Task::ConstPtr _task);
+    virtual void blindData(std::string _taskID, bcos::bytes _randA);
     virtual void onTaskError(std::string&& _error);
     void ConcurrentSTLToCommon(
         tbb::concurrent_map<uint32_t, bcos::bytes> _cMap, std::map<uint32_t, bcos::bytes>& result)
@@ -65,30 +60,9 @@ protected:
         }
     };
 
-    virtual void splitVector(std::vector<bcos::bytes>& _vectors, uint32_t _start, uint32_t _end,
-        std::vector<bcos::bytes>& _outVecs)
-    {
-        uint32_t index = 0;
-        for (auto vec : _vectors)
-        {
-            if (index < _start)
-            {
-                index++;
-                continue;
-            }
-            else if (index >= _end)
-            {
-                break;
-            }
-            _outVecs.push_back(vec);
-            index++;
-        }
-    };
-
 
 private:
     bool m_syncResult{false};
-    ppc::io::DataBatch::Ptr m_originInputs;
     EcdhMultiPSIConfig::Ptr m_config;
     bcos::bytes m_randomA;
     std::string m_taskID;
@@ -97,6 +71,8 @@ private:
     std::map<std::string, ppc::protocol::PartyResource::Ptr> m_partnerParties;
     std::map<std::string, ppc::protocol::PartyResource::Ptr> m_masterParties;
     std::vector<bcos::bytes> m_finalResults;
-    CalculatorCipherDataCache::Ptr m_calculatorCipherDataCache;
+    CalculatorCache::Ptr m_calculatorCache;
+
+    mutable bcos::Mutex m_mutex;
 };
 }  // namespace ppc::psi

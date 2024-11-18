@@ -19,6 +19,7 @@
  */
 #include "Front.h"
 #include "FrontImpl.h"
+#include "ppc-framework/protocol/Constant.h"
 #include "ppc-utilities/Utilities.h"
 
 using namespace ppc;
@@ -172,28 +173,37 @@ void Front::registerMessageHandler(uint8_t _taskType, uint8_t _algorithmType,
 {
     uint16_t type = ((uint16_t)_taskType << 8) | _algorithmType;
     auto self = weak_from_this();
-    m_front->registerMessageHandler(
-        std::to_string(type), [self, type, _handler](ppc::protocol::Message::Ptr msg) {
-            auto front = self.lock();
-            if (!front)
+    m_front->registerMessageHandler(std::to_string(type), [self, type, _handler](
+                                                              ppc::protocol::Message::Ptr msg) {
+        auto front = self.lock();
+        if (!front)
+        {
+            return;
+        }
+        try
+        {
+            if (msg == nullptr)
             {
+                _handler(nullptr);
                 return;
             }
-            try
+            _handler(front->m_messageFactory->decodePPCMessage(msg));
+            auto length = msg->length();
+            // release the payload of the large packet after the msg decoded
+            if (length >= ppc::protocol::LARGE_MSG_THRESHOLD)
             {
-                if (msg == nullptr)
-                {
-                    _handler(nullptr);
-                    return;
-                }
-                _handler(front->m_messageFactory->decodePPCMessage(msg));
+                FRONT_LOG(INFO) << LOG_DESC("RecvMsg: Release large payload for node after used")
+                                << LOG_KV("msgSize", length);
+                // release the payload
+                msg->releasePayload();
             }
-            catch (std::exception const& e)
-            {
-                FRONT_LOG(WARNING) << LOG_DESC("Call handler for component failed")
-                                   << LOG_KV("componentType", type)
-                                   << LOG_KV("error", boost::diagnostic_information(e));
-            }
-        });
+        }
+        catch (std::exception const& e)
+        {
+            FRONT_LOG(WARNING) << LOG_DESC("Call handler for component failed")
+                               << LOG_KV("componentType", type)
+                               << LOG_KV("error", boost::diagnostic_information(e));
+        }
+    });
     m_front->registerComponent(std::to_string(type));
 }

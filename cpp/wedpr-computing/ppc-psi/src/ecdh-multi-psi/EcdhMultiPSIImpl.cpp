@@ -1,5 +1,7 @@
 #include "EcdhMultiPSIImpl.h"
 #include "Common.h"
+#include "ppc-framework/protocol/Constant.h"
+#include <gperftools/malloc_extension.h>
 
 using namespace ppc::psi;
 using namespace ppc::protocol;
@@ -46,40 +48,39 @@ void EcdhMultiPSIImpl::handlerPSIReceiveMessage(PSIMessageInterface::Ptr _msg)
             case (uint32_t)EcdhMultiPSIMessageType::GENERATE_RANDOM_TO_PARTNER:
             {
                 // calculator -> partner (A)
-                psi->onComputeAndEncryptSet(_msg);
+                psi->onReceiveRandomA(_msg);
                 break;
             }
             case (uint32_t)EcdhMultiPSIMessageType::SEND_ENCRYPTED_SET_TO_MASTER_FROM_CALCULATOR:
             {
                 // calculator -> master H(X)*A
-                psi->onHandlerIntersectEncryptSetFromCalculator(_msg);
+                psi->onReceiveCalCipher(_msg);
                 break;
             }
             case (uint32_t)EcdhMultiPSIMessageType::SEND_ENCRYPTED_SET_TO_MASTER_FROM_PARTNER:
             {
                 // patner -> master H(Y)*A
-                psi->onHandlerIntersectEncryptSetFromPartner(_msg);
+                psi->onReceiveCipherFromPartner(_msg);
                 break;
             }
             case (uint32_t)EcdhMultiPSIMessageType::SEND_ENCRYPTED_INTERSECTION_SET_TO_CALCULATOR:
             {
-                psi->onHandlerIntersectEncryptSetToCalculator(_msg);
+                psi->onReceiveIntersecCipher(_msg);
                 break;
             }
             case (uint32_t)EcdhMultiPSIMessageType::SEND_ENCRYPTED_SET_TO_CALCULATOR:
             {
-                psi->onHandlerEncryptSetToCalculator(_msg);
+                psi->onReceiveMasterCipher(_msg);
                 break;
             }
             case (uint32_t)EcdhMultiPSIMessageType::
                 RETURN_ENCRYPTED_INTERSECTION_SET_FROM_CALCULATOR_TO_MASTER:
             {
-                psi->onHandlerEncryptIntersectionSetFromCalculatorToMaster(_msg);
                 break;
             }
             case (uint32_t)EcdhMultiPSIMessageType::SYNC_FINAL_RESULT_TO_ALL:
             {
-                psi->onHandlerSyncFinalResultToAllPeer(_msg);
+                psi->onReceivePSIResult(_msg);
                 break;
             }
             default:
@@ -103,9 +104,11 @@ void EcdhMultiPSIImpl::handlerPSIReceiveMessage(PSIMessageInterface::Ptr _msg)
 void EcdhMultiPSIImpl::asyncRunTask(
     ppc::protocol::Task::ConstPtr _task, ppc::task::TaskResponseCallback&& _onTaskFinished)
 {
+    auto taskID = _task->id();
     auto taskState =
         m_taskStateFactory->createTaskState(_task, std::move(_onTaskFinished), false, m_config);
-    taskState->registerNotifyPeerFinishHandler([self = weak_from_this(), _task]() {
+    auto self = weak_from_this();
+    taskState->registerNotifyPeerFinishHandler([self, _task]() {
         auto psi = self.lock();
         if (!psi)
         {
@@ -113,13 +116,36 @@ void EcdhMultiPSIImpl::asyncRunTask(
         }
         psi->noticePeerToFinish(_task);
     });
+    taskState->registerFinalizeHandler([self, taskID]() {
+        auto psi = self.lock();
+        if (!psi)
+        {
+            return;
+        }
+        // erase the taskInfo from the gateway
+        psi->m_config->front()->eraseTaskInfo(taskID);
+        psi->removeCalculator(taskID);
+        psi->removeMaster(taskID);
+        psi->removePartner(taskID);
+        psi->removePendingTask(taskID);
+    });
     addPendingTask(taskState);
-
+    // over the peer limit
+    if (_task->getAllPeerParties().size() > c_max_peer_size)
+    {
+        auto error = std::make_shared<bcos::Error>(
+            -1, "at most support " + std::to_string(c_max_peer_size) + " peers, over the limit!");
+        ECDH_MULTI_LOG(WARNING) << LOG_DESC("asyncRunTask failed")
+                                << LOG_KV("msg", error->errorMessage());
+        onSelfError(_task->id(), error, true);
+    }
     try
     {
         auto dataResource = _task->selfParty()->dataResource();
         auto reader = loadReader(_task->id(), dataResource, DataSchema::Bytes);
-        taskState->setReader(reader, -1);
+        auto sqlReader = (reader->type() == ppc::protocol::DataResourceType::MySQL);
+        auto nextParam = sqlReader ? 0 : m_config->dataBatchSize();
+        taskState->setReader(reader, nextParam);
         auto role = _task->selfParty()->partyIndex();
         auto receivers = _task->getReceiverLists();
         ECDH_MULTI_LOG(INFO) << LOG_DESC("Start a asyncRunTask ") << LOG_KV("taskID", _task->id())
@@ -221,7 +247,7 @@ void EcdhMultiPSIImpl::checkFinishedTask()
         for (auto it = m_pendingTasks.begin(); it != m_pendingTasks.end();)
         {
             auto task = it->second;
-            if (task->finished())
+            if (task->taskDone())
             {
                 finishedTask.insert(it->first);
             }
@@ -239,6 +265,7 @@ void EcdhMultiPSIImpl::checkFinishedTask()
 
 void EcdhMultiPSIImpl::onReceivedErrorNotification(const std::string& _taskID)
 {
+    ECDH_MULTI_LOG(INFO) << LOG_DESC("onReceivedErrorNotification") << LOG_KV("taskID", _taskID);
     // finish the task while the peer is failed
     auto taskState = findPendingTask(_taskID);
     if (taskState)
@@ -296,13 +323,21 @@ void EcdhMultiPSIImpl::executeWorker()
         psiMsg->setUUID(pop_msg->uuid());
         ECDH_MULTI_LOG(TRACE) << LOG_DESC("onReceiveMessage") << printPSIMessage(psiMsg)
                               << LOG_KV("uuid", psiMsg->uuid());
+        // release the large payload immediately
+        if (payLoad && payLoad->size() >= ppc::protocol::LARGE_MSG_THRESHOLD)
+        {
+            ECDH_MULTI_LOG(INFO) << LOG_DESC("Release large message payload")
+                                 << LOG_KV("size", payLoad->size());
+            pop_msg->releasePayload();
+            MallocExtension::instance()->ReleaseFreeMemory();
+        }
         handlerPSIReceiveMessage(psiMsg);
         return;
     }
     waitSignal();
 }
 
-void EcdhMultiPSIImpl::onComputeAndEncryptSet(PSIMessageInterface::Ptr _msg)
+void EcdhMultiPSIImpl::onReceiveRandomA(PSIMessageInterface::Ptr _msg)
 {
     auto partner = findPartner(_msg->taskID());
     if (partner)
@@ -310,71 +345,70 @@ void EcdhMultiPSIImpl::onComputeAndEncryptSet(PSIMessageInterface::Ptr _msg)
         if (_msg->takeData().size() == 1)
         {
             auto msgData = _msg->getData(0);
-            partner->oncomputeAndEncryptSet(
+            partner->onReceiveRandomA(
                 std::make_shared<bcos::bytes>(bcos::bytes(msgData.begin(), msgData.end())));
         }
     }
 }
 
-void EcdhMultiPSIImpl::onHandlerIntersectEncryptSetFromCalculator(PSIMessageInterface::Ptr _msg)
+void EcdhMultiPSIImpl::onReceiveCalCipher(PSIMessageInterface::Ptr _msg)
 {
     auto master = findMaster(_msg->taskID());
     if (master)
     {
-        master->onHandlerIntersectEncryptSetFromCalculator(_msg);
+        master->onReceiveCalCipher(_msg);
     }
 }
 
-void EcdhMultiPSIImpl::onHandlerIntersectEncryptSetFromPartner(PSIMessageInterface::Ptr _msg)
+void EcdhMultiPSIImpl::onReceiveCipherFromPartner(PSIMessageInterface::Ptr _msg)
 {
     auto master = findMaster(_msg->taskID());
     if (master)
     {
-        master->onHandlerIntersectEncryptSetFromPartner(_msg);
+        master->onReceiveCipherFromPartner(_msg);
     }
 }
 
-void EcdhMultiPSIImpl::onHandlerIntersectEncryptSetToCalculator(PSIMessageInterface::Ptr _msg)
+void EcdhMultiPSIImpl::onReceiveIntersecCipher(PSIMessageInterface::Ptr _msg)
 {
     auto calculator = findCalculator(_msg->taskID());
     if (calculator)
     {
-        calculator->onHandlerIntersectEncryptSetToCalculator(_msg);
+        calculator->onReceiveIntersecCipher(_msg);
     }
 }
 
-void EcdhMultiPSIImpl::onHandlerEncryptSetToCalculator(PSIMessageInterface::Ptr _msg)
+void EcdhMultiPSIImpl::onReceiveMasterCipher(PSIMessageInterface::Ptr _msg)
 {
     auto calculator = findCalculator(_msg->taskID());
     if (calculator)
     {
-        calculator->onHandlerEncryptSetToCalculator(_msg);
+        calculator->onReceiveMasterCipher(_msg);
     }
 }
 
-void EcdhMultiPSIImpl::onHandlerEncryptIntersectionSetFromCalculatorToMaster(
-    PSIMessageInterface::Ptr _msg)
-{
-    auto master = findMaster(_msg->taskID());
-    if (master)
-    {
-        master->onHandlerEncryptIntersectionSetFromCalculatorToMaster(_msg);
-    }
-}
 
-void EcdhMultiPSIImpl::onHandlerSyncFinalResultToAllPeer(PSIMessageInterface::Ptr _msg)
+void EcdhMultiPSIImpl::onReceivePSIResult(PSIMessageInterface::Ptr _msg)
 {
+    ECDH_MULTI_LOG(INFO) << LOG_DESC("onReceivePSIResult") << printPSIMessage(_msg);
+    auto startT = utcSteadyTime();
     auto master = findMaster(_msg->taskID());
     if (master)
     {
-        master->onHandlerSyncFinalResultToAllPeer(_msg);
+        master->onReceivePSIResult(_msg);
+        ECDH_MULTI_LOG(INFO) << LOG_DESC("Master onReceivePSIResult finished")
+                             << printPSIMessage(_msg)
+                             << LOG_KV("timecost", (utcSteadyTime() - startT));
         return;
     }
 
     auto partner = findPartner(_msg->taskID());
     if (partner)
     {
-        partner->onHandlerSyncFinalResultToAllPeer(_msg);
+        partner->onReceivePSIResult(_msg);
+        ECDH_MULTI_LOG(INFO) << LOG_DESC("Partner onReceivePSIResult finished")
+                             << printPSIMessage(_msg)
+                             << LOG_KV("timecost", (utcSteadyTime() - startT));
         return;
     }
 }

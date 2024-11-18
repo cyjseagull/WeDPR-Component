@@ -47,7 +47,7 @@ public:
 
 protected:
     virtual bool allocateCurrentBlock() = 0;
-    virtual bool readFinished() const = 0;
+
 
     template <typename T>
     int64_t readLineFromBlock(DataBatch::Ptr _dataBatch, int64_t _size)
@@ -96,7 +96,7 @@ protected:
         while (expectedSize > 0 && (allocateCurrentBlock()))
         {
             auto readLineNum = readLineFromBlock<T>(dataBatch, expectedSize);
-            expectedSize = _size - readLineNum;
+            expectedSize = expectedSize - readLineNum;
         }
         IO_LOG(INFO) << LOG_DESC("readLineData") << LOG_KV("size", _size)
                      << LOG_KV("readedSize", dataBatch->size());

@@ -20,6 +20,7 @@
 #pragma once
 #include "../Common.h"
 #include <bcos-utilities/Common.h>
+#include <gperftools/malloc_extension.h>
 #include <boost/lexical_cast.hpp>
 #include <algorithm>
 #include <memory>
@@ -200,6 +201,18 @@ public:
 
 
     std::shared_ptr<std::vector<DataType>>& mutableData() { return m_data; }
+
+    void release()
+    {
+        if (!m_data)
+        {
+            return;
+        }
+        m_data->clear();
+        m_data.reset();
+        // free after release
+        MallocExtension::instance()->ReleaseFreeMemory();
+    }
 
 private:
     std::shared_ptr<std::vector<DataType>> m_data;

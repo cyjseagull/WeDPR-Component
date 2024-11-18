@@ -48,15 +48,13 @@ public:
 
 protected:
     bool m_enableOutputExists = false;
-    virtual void onComputeAndEncryptSet(PSIMessageInterface::Ptr _msg);
-    virtual void onHandlerIntersectEncryptSetFromCalculator(PSIMessageInterface::Ptr _msg);
+    virtual void onReceiveRandomA(PSIMessageInterface::Ptr _msg);
+    virtual void onReceiveCalCipher(PSIMessageInterface::Ptr _msg);
     virtual void handlerPSIReceiveMessage(PSIMessageInterface::Ptr _msg);
-    virtual void onHandlerIntersectEncryptSetToCalculator(PSIMessageInterface::Ptr _msg);
-    virtual void onHandlerEncryptSetToCalculator(PSIMessageInterface::Ptr _msg);
-    virtual void onHandlerEncryptIntersectionSetFromCalculatorToMaster(
-        PSIMessageInterface::Ptr _msg);
-    virtual void onHandlerIntersectEncryptSetFromPartner(PSIMessageInterface::Ptr _msg);
-    virtual void onHandlerSyncFinalResultToAllPeer(PSIMessageInterface::Ptr _msg);
+    virtual void onReceiveIntersecCipher(PSIMessageInterface::Ptr _msg);
+    virtual void onReceiveMasterCipher(PSIMessageInterface::Ptr _msg);
+    virtual void onReceiveCipherFromPartner(PSIMessageInterface::Ptr _msg);
+    virtual void onReceivePSIResult(PSIMessageInterface::Ptr _msg);
 
     EcdhMultiPSICalculator::Ptr findCalculator(const std::string& _taskID)
     {
@@ -149,6 +147,10 @@ private:
     void wakeupWorker() { m_signal.notify_all(); }
 
     const int c_popWaitMs = 5;
+
+    // at most support 63 peers
+    const int c_max_peer_size = 63;
+
     EcdhMultiPSIConfig::Ptr m_config;
     TaskState::Ptr m_taskMultiState;
     EcdhMultiPSIMsgQueuePtr m_msgQueue;
