@@ -56,7 +56,7 @@ bool MPCService::addJobIfNotRunning(const JobInfo& jobInfo)
         MPC_LOG(INFO) << LOG_DESC("[MPCService][addJob]") 
                 << "job already exists"
                 << LOG_KV("jobId", jobInfo.jobId)
-                << LOG_KV("code", it->second.code)
+                << LOG_KV("status", it->second.status)
                 << LOG_KV("message", it->second.message);
 
         if (it->second.status == MPC_JOB_RUNNNING) 
@@ -103,7 +103,7 @@ bool MPCService::queryJobStatus(const std::string &jobId, JobStatus &jobStatus)
     MPC_LOG(INFO) << LOG_DESC("[MPCService][queryJobStatus]") 
                 << "find job"
                 << LOG_KV("jobId", jobId)
-                << LOG_KV("code", jobStatus.code)
+                << LOG_KV("status", jobStatus.status)
                 << LOG_KV("message", jobStatus.message)
                 << LOG_KV("timeCostMs", jobStatus.timeCostMs);
     return true;
