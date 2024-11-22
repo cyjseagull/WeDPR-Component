@@ -34,7 +34,7 @@
 
 namespace ppc::mpc
 {
-class MPCService: std::enable_shared_from_this<MPCService>
+class MPCService: public std::enable_shared_from_this<MPCService>
 {
 public:
     using Ptr = std::shared_ptr<MPCService>;
