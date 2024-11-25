@@ -55,7 +55,7 @@ void EcdhConnPSIImpl::asyncRunTask(
     if (role == uint16_t(PartyType::Client))
     {
         ECDH_CONN_LOG(INFO) << LOG_DESC("Client do the Task") << LOG_KV("taskID", _task->id());
-        auto writer = loadWriter(_task->id(), dataResource, m_enableOutputExists);
+        auto writer = loadWriter(_task->id(), dataResource, _task->enableOutputExists());
         ecdhTaskState->setWriter(writer);
         auto client = std::make_shared<EcdhConnPSIClient>(m_config, ecdhTaskState);
         addClient(client);
@@ -66,7 +66,7 @@ void EcdhConnPSIImpl::asyncRunTask(
         ECDH_CONN_LOG(INFO) << LOG_DESC("Server do the Task") << LOG_KV("taskID", _task->id());
         if (_task->syncResultToPeer())
         {
-            auto writer = loadWriter(_task->id(), dataResource, m_enableOutputExists);
+            auto writer = loadWriter(_task->id(), dataResource, _task->enableOutputExists());
             ecdhTaskState->setWriter(writer);
         }
         auto server = std::make_shared<EcdhConnPSIServer>(m_config, ecdhTaskState);
@@ -131,7 +131,7 @@ void EcdhConnPSIImpl::stop()
     }
 }
 
-void EcdhConnPSIImpl::onReceivedErrorNotification(const std::string& _taskID) {}
+void EcdhConnPSIImpl::onReceivedErrorNotification(ppc::front::PPCMessageFace::Ptr const&) {}
 
 void EcdhConnPSIImpl::onSelfError(
     const std::string& _taskID, bcos::Error::Ptr _error, bool _noticePeer)

@@ -152,15 +152,14 @@ void CM2020PSIImpl::asyncRunTask()
         {
             return;
         }
-
+        CM2020_PSI_LOG(INFO) << LOG_DESC("noticePeerToFinish") << printTaskInfo(task);
         psi->noticePeerToFinish(task);
     });
-    // check the memory
-    checkHostResource(m_config->minNeededMemoryGB());
-    addPendingTask(taskState);
-
     try
     {
+        addPendingTask(taskState);
+        // check the memory
+        checkHostResource(m_config->minNeededMemoryGB());
         // prepare reader and writer
         auto dataResource = task->selfParty()->dataResource();
         auto reader = loadReader(task->id(), dataResource, DataSchema::Bytes);
@@ -169,7 +168,7 @@ void CM2020PSIImpl::asyncRunTask()
         auto role = task->selfParty()->partyIndex();
         if (role == uint16_t(PartyType::Client) || task->syncResultToPeer())
         {
-            auto writer = loadWriter(task->id(), dataResource, m_enableOutputExists);
+            auto writer = loadWriter(task->id(), dataResource, task->enableOutputExists());
             taskState->setWriter(writer);
         }
 
@@ -319,10 +318,11 @@ void CM2020PSIImpl::stop()
     CM2020_PSI_LOG(INFO) << LOG_DESC("CM2020-PSI stopped");
 }
 
-void CM2020PSIImpl::onReceivedErrorNotification(const std::string& _taskID)
+void CM2020PSIImpl::onReceivedErrorNotification(ppc::front::PPCMessageFace::Ptr const& _message)
 {
+    CM2020_PSI_LOG(INFO) << LOG_DESC("onReceivedErrorNotification") << printPPCMsg(_message);
     // finish the task while the peer is failed
-    auto taskState = findPendingTask(_taskID);
+    auto taskState = findPendingTask(_message->taskID());
     if (taskState)
     {
         taskState->onPeerNotifyFinish();
@@ -410,7 +410,7 @@ void CM2020PSIImpl::handleReceivedMessage(const ppc::front::PPCMessageFace::Ptr&
             {
             case int(CommonMessageType::ErrorNotification):
             {
-                psi->onReceivedErrorNotification(_message->taskID());
+                psi->onReceivedErrorNotification(_message);
                 break;
             }
             case int(CommonMessageType::PingPeer):

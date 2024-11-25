@@ -40,14 +40,13 @@ public:
     void stop() override;
 
     void checkFinishedTask();
-    void onReceivedErrorNotification(const std::string& _taskID) override;
+    void onReceivedErrorNotification(ppc::front::PPCMessageFace::Ptr const& _message) override;
     void onSelfError(
         const std::string& _taskID, bcos::Error::Ptr _error, bool _noticePeer) override;
     void executeWorker() override;
 
 
 protected:
-    bool m_enableOutputExists = false;
     virtual void onReceiveRandomA(PSIMessageInterface::Ptr _msg);
     virtual void onReceiveCalCipher(PSIMessageInterface::Ptr _msg);
     virtual void handlerPSIReceiveMessage(PSIMessageInterface::Ptr _msg);

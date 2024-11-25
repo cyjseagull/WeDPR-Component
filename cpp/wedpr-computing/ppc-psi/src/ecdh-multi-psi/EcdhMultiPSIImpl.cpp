@@ -131,9 +131,9 @@ void EcdhMultiPSIImpl::asyncRunTask(
             psi->removePartner(taskID);
             psi->removePendingTask(taskID);
         });
+        addPendingTask(taskState);
         // check the memory
         checkHostResource(m_config->minNeededMemoryGB());
-        addPendingTask(taskState);
         // over the peer limit
         if (_task->getAllPeerParties().size() > c_max_peer_size)
         {
@@ -155,7 +155,7 @@ void EcdhMultiPSIImpl::asyncRunTask(
                              << LOG_KV("roleId", role);
         if (role == uint16_t(PartiesType::Calculator))
         {
-            auto writer = loadWriter(_task->id(), dataResource, m_enableOutputExists);
+            auto writer = loadWriter(_task->id(), dataResource, _task->enableOutputExists());
             taskState->setWriter(writer);
             ECDH_MULTI_LOG(INFO) << LOG_DESC("Calculator do the Task")
                                  << LOG_KV("taskID", _task->id());
@@ -170,7 +170,7 @@ void EcdhMultiPSIImpl::asyncRunTask(
             if (_task->syncResultToPeer() && std::find(receivers.begin(), receivers.end(),
                                                  m_config->selfParty()) != receivers.end())
             {
-                auto writer = loadWriter(_task->id(), dataResource, m_enableOutputExists);
+                auto writer = loadWriter(_task->id(), dataResource, _task->enableOutputExists());
                 taskState->setWriter(writer);
             }
             auto partner = std::make_shared<EcdhMultiPSIPartner>(m_config, taskState);
@@ -183,7 +183,7 @@ void EcdhMultiPSIImpl::asyncRunTask(
             if (_task->syncResultToPeer() && std::find(receivers.begin(), receivers.end(),
                                                  m_config->selfParty()) != receivers.end())
             {
-                auto writer = loadWriter(_task->id(), dataResource, m_enableOutputExists);
+                auto writer = loadWriter(_task->id(), dataResource, _task->enableOutputExists());
                 taskState->setWriter(writer);
             }
             auto master = std::make_shared<EcdhMultiPSIMaster>(m_config, taskState);
@@ -266,11 +266,11 @@ void EcdhMultiPSIImpl::checkFinishedTask()
     }
 }
 
-void EcdhMultiPSIImpl::onReceivedErrorNotification(const std::string& _taskID)
+void EcdhMultiPSIImpl::onReceivedErrorNotification(ppc::front::PPCMessageFace::Ptr const& _message)
 {
-    ECDH_MULTI_LOG(INFO) << LOG_DESC("onReceivedErrorNotification") << LOG_KV("taskID", _taskID);
+    ECDH_MULTI_LOG(INFO) << LOG_DESC("onReceivedErrorNotification") << printPPCMsg(_message);
     // finish the task while the peer is failed
-    auto taskState = findPendingTask(_taskID);
+    auto taskState = findPendingTask(_message->taskID());
     if (taskState)
     {
         taskState->onPeerNotifyFinish();
@@ -308,7 +308,7 @@ void EcdhMultiPSIImpl::executeWorker()
         auto pop_msg = _msg.second;
         if (pop_msg->messageType() == uint8_t(CommonMessageType::ErrorNotification))
         {
-            onReceivedErrorNotification(pop_msg->taskID());
+            onReceivedErrorNotification(pop_msg);
             return;
         }
         else if (pop_msg->messageType() == uint8_t(CommonMessageType::PingPeer))

@@ -61,13 +61,10 @@ public:
     void start() override;
     void stop() override;
 
-    void onReceivedErrorNotification(const std::string& _taskID) override;
+    void onReceivedErrorNotification(ppc::front::PPCMessageFace::Ptr const& _message) override;
     void onSelfError(
         const std::string& _taskID, bcos::Error::Ptr _error, bool _noticePeer) override;
     void executeWorker() override;
-
-protected:
-    bool m_enableOutputExists = false;
 
     void handlerPSIReceiveMessage(PSIConnMessage::Ptr _msg);
     void onHandShakeRequestHandler(const std::string& _taskId, const bcos::bytes& _msg);

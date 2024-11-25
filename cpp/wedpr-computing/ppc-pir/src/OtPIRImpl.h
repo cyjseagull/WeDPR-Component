@@ -59,7 +59,7 @@ public:
     // register to the front to get the message related to ot-pir
     void onReceiveMessage(ppc::front::PPCMessageFace::Ptr _message) override;
 
-    void onReceivedErrorNotification(const std::string& _taskID) override;
+    void onReceivedErrorNotification(ppc::front::PPCMessageFace::Ptr const& _message) override;
     void onSelfError(
         const std::string& _taskID, bcos::Error::Ptr _error, bool _noticePeer) override;
 
@@ -150,8 +150,6 @@ protected:
             m_senders.erase(it);
         }
     }
-    // allow the output-path exists, for ut
-    bool m_enableOutputExists = false;
     // 为true时启动时会从配置中加载文件作为匹配源
     bool m_enableMemoryFile = false;
     ppc::protocol::DataResource m_resource;

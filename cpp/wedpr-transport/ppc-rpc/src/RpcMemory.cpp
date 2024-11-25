@@ -72,9 +72,26 @@ void RpcMemory::cleanTask()
 bcos::Error::Ptr RpcMemory::insertTask(protocol::Task::Ptr _task)
 {
     WriteGuard l(x_tasks);
-    if (m_tasks.find(_task->id()) != m_tasks.end())
+    auto it = m_tasks.find(_task->id());
+    if (it != m_tasks.end())
     {
-        return std::make_shared<bcos::Error>(PPCRetCode::WRITE_RPC_STATUS_ERROR, "task exists");
+        auto taskResult = it->second.second;
+        // the task already exists case
+        if (!taskResult || taskResult->status() == toString(TaskStatus::RUNNING))
+        {
+            return std::make_shared<bcos::Error>(PPCRetCode::WRITE_RPC_STATUS_ERROR, "task exists");
+        }
+        if (taskResult)
+        {
+            RPC_STATUS_LOG(INFO) << LOG_DESC("find the existed not running-task")
+                                 << LOG_KV("task", _task->id())
+                                 << LOG_KV("status", taskResult->status());
+            if (taskResult->status() != toString(TaskState::COMPLETED))
+            {
+                // erase the task_id
+                m_front->eraseTaskInfo(_task->id());
+            }
+        }
     }
     auto taskResult = std::make_shared<TaskResult>(_task->id());
     taskResult->setStatus(toString(TaskStatus::RUNNING));
@@ -107,15 +124,4 @@ TaskResult::Ptr RpcMemory::getTaskStatus(const std::string& _taskID)
     }
 
     return m_tasks[_taskID].second;
-}
-
-
-bcos::Error::Ptr RpcMemory::deleteGateway(const std::string& _agencyID)
-{
-    return nullptr;
-}
-
-std::vector<GatewayInfo> RpcMemory::listGateway()
-{
-    return {};
 }

@@ -115,9 +115,9 @@ void LabeledPSIImpl::asyncRunTask(
 
                 psi->noticePeerToFinish(_task);
             });
+            addPendingTask(taskState);
             // check the memory
             checkHostResource(m_config->minNeededMemoryGB());
-            addPendingTask(taskState);
 
             auto oprfClient = std::make_shared<EcdhOprfClient>(
                 sizeof(apsi::Item::value_type) + sizeof(apsi::LabelKey), m_config->hash(),
@@ -220,10 +220,11 @@ void LabeledPSIImpl::stop()
     LABELED_PSI_LOG(INFO) << LOG_DESC("LabeledPSI stopped");
 }
 
-void LabeledPSIImpl::onReceivedErrorNotification(const std::string& _taskID)
+void LabeledPSIImpl::onReceivedErrorNotification(ppc::front::PPCMessageFace::Ptr const& _message)
 {
+    LABELED_PSI_LOG(WARNING) << LOG_DESC("onReceivedErrorNotification") << printPPCMsg(_message);
     // finish the task while the peer is failed
-    auto taskState = findPendingTask(_taskID);
+    auto taskState = findPendingTask(_message->taskID());
     if (taskState)
     {
         taskState->onPeerNotifyFinish();
@@ -553,7 +554,7 @@ void LabeledPSIImpl::saveSenderCache(const ppc::protocol::Task::ConstPtr& _task)
         auto dataResource = _task->selfParty()->dataResource();
 
         LineWriter::Ptr writer;
-        if (!m_enableOutputExists)
+        if (!_task->enableOutputExists())
         {
             // Note: if the output-resource already exists, will throw exception
             m_config->dataResourceLoader()->checkResourceExists(dataResource->outputDesc());
@@ -690,7 +691,7 @@ void LabeledPSIImpl::handleReceivedMessage(const ppc::front::PPCMessageFace::Ptr
             {
             case int(CommonMessageType::ErrorNotification):
             {
-                psi->onReceivedErrorNotification(_message->taskID());
+                psi->onReceivedErrorNotification(_message);
                 break;
             }
             case int(CommonMessageType::PingPeer):

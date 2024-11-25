@@ -20,6 +20,7 @@
  */
 
 #pragma once
+#include "ppc-framework/front/FrontInterface.h"
 #include "ppc-framework/rpc/RpcStatusInterface.h"
 #include <bcos-utilities/Common.h>
 #include <bcos-utilities/Timer.h>
@@ -31,7 +32,10 @@ class RpcMemory : public RpcStatusInterface
 public:
     using Ptr = std::shared_ptr<RpcMemory>;
 
-    RpcMemory() : m_taskCleaner(std::make_shared<bcos::Timer>(60 * 60 * 1000, "taskCleaner")) {}
+    RpcMemory(ppc::front::FrontInterface::Ptr front)
+      : m_front(std::move(front)),
+        m_taskCleaner(std::make_shared<bcos::Timer>(60 * 60 * 1000, "taskCleaner"))
+    {}
     ~RpcMemory() override = default;
 
     void start() override;
@@ -40,13 +44,13 @@ public:
     bcos::Error::Ptr insertTask(protocol::Task::Ptr _task) override;
     bcos::Error::Ptr updateTaskStatus(protocol::TaskResult::Ptr _taskResult) override;
     protocol::TaskResult::Ptr getTaskStatus(const std::string& _taskID) override;
-    bcos::Error::Ptr deleteGateway(const std::string& _agencyID) override;
-    std::vector<protocol::GatewayInfo> listGateway() override;
 
 protected:
     void cleanTask();
 
 private:
+    ppc::front::FrontInterface::Ptr m_front;
+
     mutable bcos::SharedMutex x_tasks;
     std::unordered_map<std::string, std::pair<uint64_t, protocol::TaskResult::Ptr>> m_tasks;
     std::shared_ptr<bcos::Timer> m_taskCleaner;
