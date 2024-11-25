@@ -347,26 +347,31 @@ void MPCService::asyncRunMpcRpc(Json::Value const& request, RespFunc func)
         {  
             response["code"] = MPC_SUCCESS;
             response["message"] = "success";
+
+            MPC_LOG(INFO) << LOG_DESC("[MPCService][asyncRunMpcRpc]") << LOG_DESC("async run mpc submit job successfully")
+                      << LOG_KV("request", request.toStyledString())
+                      << LOG_KV("response", response.toStyledString());
+
+            // async run mpc job
+            m_threadPool->enqueue([self = weak_from_this(), jobInfo]() {
+                auto service = self.lock();
+                if (!service)
+                {
+                    MPC_LOG(ERROR) << LOG_DESC("[MPCService][asyncRunMpcRpc]") << LOG_DESC("async run mpc service is null");
+                    return;
+                }
+                service->runMpcRpcByJobInfo(jobInfo);
+            });
         }
         else 
         {
             response["code"] = MPC_DUPLICATED;
             response["message"] = "duplicated submit job";
-        }
 
-        MPC_LOG(INFO) << LOG_DESC("[MPCService][asyncRunMpcRpc]") << LOG_DESC("async run mpc submit job successfully")
+            MPC_LOG(INFO) << LOG_DESC("[MPCService][asyncRunMpcRpc]") << LOG_DESC("async run mpc duplicated submit job")
                       << LOG_KV("request", request.toStyledString())
                       << LOG_KV("response", response.toStyledString());
-
-        // async run mpc job
-        m_threadPool->enqueue([self = weak_from_this(), jobInfo]() {
-            auto service = self.lock();
-            if (!service)
-            {
-                return;
-            }
-            service->runMpcRpcByJobInfo(jobInfo);
-        });
+        }
     }
     catch (const std::exception& e)
     {
