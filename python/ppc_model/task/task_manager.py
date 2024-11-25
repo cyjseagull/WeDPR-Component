@@ -83,7 +83,7 @@ class TaskPersistent:
         worker_recorder = self.query_task(task_result.task_id)
         if worker_recorder is None:
             self.logger.warn(
-                f"TaskPersistent error, the task not found! task_result: {task_result}")
+                f"TaskPersistent error, the task {task_result.task_id} not found! task_result: {task_result}")
             return
         # update the task result
         worker_recorder.status = task_result.task_status
@@ -188,6 +188,12 @@ class TaskManager:
         """
         返回: 任务状态, 通讯量(MB), 执行耗时(s)
         """
+        # hit the cache: first query the memory
+        with self._rw_lock.gen_rlock():
+            if task_id in self._tasks.keys():
+                task_result = self._tasks.get(task_id)
+                return task_result.task_status, 0, task_result.exec_result
+        # miss the cache: query from the db
         result = self.task_persistent.query_task(task_id)
         if result is None:
             return TaskStatus.NotFound.value, 0.0, None
