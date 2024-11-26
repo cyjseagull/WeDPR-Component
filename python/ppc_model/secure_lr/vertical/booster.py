@@ -145,12 +145,12 @@ class VerticalBooster(SecureModelBooster):
             deriv_x_i = np.frombuffer(self._receive_byte_data(
                 self.ctx, f'{LRMessage.D_MATMUL.value}_{self._iter_id}', partner_index), dtype=np.float)
             self.logger.info(
-                f'{self.ctx.components.config_data["AGENCY_ID"]}, deriv: {deriv}.')
+                f'{self.ctx.components.config_data["AGENCY_ID"]}, deriv size: {deriv.size}.')
             self.logger.info(
-                f'{self.ctx.components.config_data["AGENCY_ID"]}, deriv_x_i: {deriv_x_i}.')
+                f'{self.ctx.components.config_data["AGENCY_ID"]}, deriv_x_i size: {deriv_x_i.size}.')
             deriv += deriv_x_i
         self.logger.info(
-            f'{self.ctx.components.config_data["AGENCY_ID"]}, deriv: {deriv}.')
+            f'{self.ctx.components.config_data["AGENCY_ID"]}, merged deriv size: {deriv.size}.')
         return deriv
 
     def _calculate_deriv1(self, x_, d, partner_index_list, d_other_list):
@@ -225,16 +225,18 @@ class VerticalBooster(SecureModelBooster):
             f"data_size: {len(byte_data) / 1024}KB, time_costs: {time.time() - start_time}s")
         return byte_data
 
-    def save_model(self, file_path=None):
-        super().save_model(file_path, "lr_model")
+    def save_model(self):
+        super().save_model("lr_model")
 
-    def save_model_hook(self, model_file_path):
+    def save_model_hook(self):
         if not os.path.exists(self.ctx.model_data_file):
             serial_weight = list(self._train_weights)
             with open(self.ctx.model_data_file, 'w') as f:
                 json.dump(serial_weight, f)
             ResultFileHandling._upload_file(self.ctx.components.storage_client,
-                                            self.ctx.model_data_file, self.ctx.remote_model_data_file)
+                                            self.ctx.model_data_file,
+                                            self.ctx.remote_model_data_file,
+                                            self.ctx.user)
             self.logger.info(
                 f"task {self.ctx.task_id}: Saved serial_weight to {self.ctx.model_data_file} finished.")
 
@@ -267,7 +269,9 @@ class VerticalBooster(SecureModelBooster):
         with open(self.ctx.model_enc_file, 'w') as f:
             json.dump(lr_model, f)
         ResultFileHandling._upload_file(self.ctx.components.storage_client,
-                                        self.ctx.model_enc_file, self.ctx.remote_model_enc_file)
+                                        self.ctx.model_enc_file,
+                                        self.ctx.remote_model_enc_file,
+                                        self.ctx.user)
         self.logger.info(
             f"task {self.ctx.task_id}: Saved enc model to {self.ctx.model_enc_file} finished.")
 

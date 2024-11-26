@@ -79,8 +79,10 @@ class VerticalFeatureEngineeringActiveParty(VerticalModel):
 
             self.iv_selected_df.loc[len(self.iv_selected_df)] = {'feature': field,
                                                                  'iv_selected': int(iv_total >= self.ctx.iv_thresh)}
+            log.info(
+                f"_compute_self_woe_iv, feature: {field}, iv_total: {iv_total}, iv_thres: {self.ctx.iv_thresh}")
         log.info(
-            f"Computing self woe/iv finished, task_id: {self.ctx.task_id}, time_costs: {time.time() - start_time}s")
+            f"Computing self woe/iv finished, task_id: {self.ctx.task_id}, time_costs: {time.time() - start_time}s, iv_thres: {self.ctx.iv_thresh}")
 
     def _compute_partner_woe_iv(self, enc_labels, partner_index):
         log = self.ctx.components.logger()
@@ -174,7 +176,8 @@ class VerticalFeatureEngineeringActiveParty(VerticalModel):
         self.iv_selected_df.to_csv(
             self.ctx.iv_selected_file, sep=',', header=True, index=None)
         self.ctx.components.storage_client.upload_file(self.ctx.woe_iv_file,
-                                                       self.ctx.job_id + os.sep + self.ctx.WOE_IV_FILE)
+                                                       self.ctx.remote_woe_iv_file,
+                                                       self.ctx.user)
         log.info(f"Saving fe results finished, task_id: {task_id}")
         with open(self.ctx.woe_iv_file, 'rb') as f:
             woe_iv = f.read()
