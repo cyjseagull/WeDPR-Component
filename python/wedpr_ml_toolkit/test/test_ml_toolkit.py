@@ -2,13 +2,13 @@
 import unittest
 import numpy as np
 import pandas as pd
-from sklearn import metrics
 from wedpr_ml_toolkit.config.wedpr_ml_config import WeDPRMlConfigBuilder
 from wedpr_ml_toolkit.wedpr_ml_toolkit import WeDPRMlToolkit
 from wedpr_ml_toolkit.context.dataset_context import DatasetContext
 from wedpr_ml_toolkit.context.data_context import DataContext
 from wedpr_ml_toolkit.context.job_context import JobType
 from wedpr_ml_toolkit.context.model_setting import PreprocessingSetting
+from wedpr_ml_toolkit.context.model_setting import ModelSetting
 
 
 class WeDPRMlToolkitTestWrapper:
@@ -25,6 +25,7 @@ class WeDPRMlToolkitTestWrapper:
             # x1到x10列，随机数
             **{f'x{i}': np.random.rand(100) for i in range(1, 11)}
         })
+        # the dataset
         dataset1 = DatasetContext(storage_entrypoint=self.wedpr_ml_toolkit.get_storage_entry_point(),
                                   dataset_client=self.wedpr_ml_toolkit.get_dataset_client(),
                                   storage_workspace=self.wedpr_config.user_config.get_workspace_path(),
@@ -32,21 +33,11 @@ class WeDPRMlToolkitTestWrapper:
                                   is_label_holder=True)
         dataset1.save_values(df, path='d-101')
 
-        # hdfs_path
+        # the dataset
         dataset2 = DatasetContext(storage_entrypoint=self.wedpr_ml_toolkit.get_storage_entry_point(),
                                   dataset_client=self.wedpr_ml_toolkit.get_dataset_client(),
                                   dataset_id="d-9743674298214405")
-
-        dataset2.storage_client = None
-        # dataset2.load_values()
-        if dataset2.storage_client is None:
-            # 支持更新dataset的values数据
-            df2 = pd.DataFrame({
-                'id': np.arange(0, 100),  # id列，顺序整数
-                # x1到x10列，随机数
-                **{f'z{i}': np.random.rand(100) for i in range(1, 11)}
-            })
-            dataset2.save_values(values=df2)
+        print(f"### dataset2 meta: {dataset2.dataset_meta}")
         if dataset1.storage_client is not None:
             # save values to dataset1
             dataset1.save_values(df)
@@ -70,6 +61,16 @@ class WeDPRMlToolkitTestWrapper:
         psi_result = psi_job_context.fetch_job_result(psi_job_id, True)
         print(
             f"* fetch_job_result for psi job {psi_job_id} success, result: {psi_result}")
+        # build the psi result:
+        psi_result_ctx = self.wedpr_ml_toolkit.build_result_context(
+            psi_job_context, psi_result)
+        print(f"* psi_result_ctx: {psi_result_ctx}")
+        (psi_result_values, psi_result_columns,
+         psi_result_shape) = psi_result_ctx.result_dataset.load_values()
+        # obtain the intersection
+        print(
+            f"* psi result, psi_result_columns: {psi_result_columns}, "
+            f"psi_result_shape: {psi_result_shape}, psi_result_values: {psi_result_values}")
         # 初始化
         print(f"* build pre-processing data-context")
         preprocessing_data = DataContext(dataset1, dataset2)
@@ -77,13 +78,50 @@ class WeDPRMlToolkitTestWrapper:
             JobType.PREPROCESSING, project_id, preprocessing_data, PreprocessingSetting())
         # 执行预处理任务
         print(f"* submit pre-processing job")
-        fe_job_id = preprocessing_job_context.submit()
-        print(f"* submit pre-processing job success, job_id: {fe_job_id}")
-        fe_result = preprocessing_job_context.fetch_job_result(fe_job_id, True)
+        preprocessing_job_id = preprocessing_job_context.submit()
         print(
-            f"* fetch pre-processing job result success, job_id: {fe_job_id}, result: {fe_result}")
+            f"* submit pre-processing job success, job_id: {preprocessing_job_id}")
+        preprocessing_result = preprocessing_job_context.fetch_job_result(
+            preprocessing_job_id, True)
+        print(
+            f"* fetch pre-processing job result success, job_id: {preprocessing_job_id}, result: {preprocessing_result}")
         print(preprocessing_job_context.participant_id_list,
               preprocessing_job_context.result_receiver_id_list)
+        # build the context
+        preprocessing_result_ctx = self.wedpr_ml_toolkit.build_result_context(preprocessing_job_context,
+                                                                              preprocessing_result)
+        print(
+            f"* preprocessing_result_ctx: {preprocessing_result_ctx.preprocessing_dataset}")
+        preprocessing_values, columns, shape = preprocessing_result_ctx.preprocessing_dataset.load_values()
+        print(
+            f"* preprocessing_result_dataset, columns: {columns}, shape: {shape}")
+        # test xgb job
+        xgb_data = DataContext(dataset1, dataset2)
+        model_setting = ModelSetting()
+        model_setting.use_psi = True
+        xgb_job_context = self.wedpr_ml_toolkit.build_job_context(
+            job_type=JobType.XGB_TRAINING, project_id=project_id,
+            dataset=xgb_data,
+            model_setting=model_setting, id_fields="id")
+        print(f"* construct xgb job context: participant_id_list: {xgb_job_context.participant_id_list}, "
+              f"result_receiver_id_list: {xgb_job_context.result_receiver_id_list}")
+        xgb_job_id = xgb_job_context.submit()
+        print(f"* submit xgb job success, {xgb_job_id}")
+        xgb_job_result = xgb_job_context.fetch_job_result(xgb_job_id, True)
+        print(f"* xgb job result: {xgb_job_result}")
+        xgb_job_context = self.wedpr_ml_toolkit.build_result_context(
+            job_context=xgb_job_context, job_result_detail=xgb_job_result)
+        print(f"* xgb job result: {xgb_job_context}")
+        # load the feature_importance information
+        (feature_importance_value, feature_importance_cols, feature_importance_shape) = \
+            xgb_job_context.feature_importance_dataset.load_values()
+        print(f"* xgb feature importance information: {feature_importance_cols}, "
+              f"{feature_importance_shape}, {feature_importance_value}")
+        # load the evaluation information
+        (evaluation_value, evaluation_cols, evaluation_shape) = \
+            xgb_job_context.evaluation_dataset.load_values()
+        print(f"* xgb evaluation information: {evaluation_cols}, "
+              f"{evaluation_shape}, {evaluation_value}")
 
     def test_query_job(self, job_id: str, block_until_finish):
         job_result = self.wedpr_ml_toolkit.query_job_status(
