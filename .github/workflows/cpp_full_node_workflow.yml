@@ -22,6 +22,8 @@ concurrency:
 env:
   RUST_BACKTRACE: 1
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+  ACTIONS_RUNNER_FORCED_INTERNAL_NODE_VERSION: node16
+  ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node16
 
 jobs:
   build:
@@ -99,23 +101,37 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           cd cpp/build && CTEST_OUTPUT_ON_FAILURE=TRUE make test ARGS="--output-on-failure"
+      - name: Publish Error
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-x64-linux-dbg-err.log
+          path: /home/runner/work/WeDPR-Component/WeDPR-Component/vcpkg/buildtrees/gsasl/build-x64-linux-dbg-err.log
+        
 
   build_centos:
     name: build_centos full node
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
+          container:
+            - centos-7.9
     container:
       image: docker.io/centos:7
       volumes:
         - /usr/local/share/vcpkg:/usr/local/share/vcpkg
+        - /node20217:/node20217:rw,rshared
+        - ${{ matrix.container == 'centos-7.9' && '/node20217:/__e/node20:ro,rshared' || ' ' }}
     steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 5
+      - name: install nodejs20glibc2.17
+        if: ${{ matrix.container == 'centos-7.9' }}
+        run: |
+          curl -LO https://unofficial-builds.nodejs.org/download/release/v20.9.0/node-v20.9.0-linux-x64-glibc-217.tar.xz
+          tar -xf node-v20.9.0-linux-x64-glibc-217.tar.xz --strip-components 1 -C /node20217
+      - name: Check out the repo
+        uses: actions/checkout@v4
       - uses: actions/cache@v3
         id: deps_cache
         with:
@@ -148,6 +164,10 @@ jobs:
         with:
           toolchain: nightly-2022-07-28
           override: true
+      - name: Prepare vcpkg
+        if: runner.os != 'Windows'
+        uses: friendlyanon/setup-vcpkg@v1
+        with: { committish: 51b14cd4e1230dd51c11ffeff6f7d53c61cc5297 }
       - name: Check disk space
         run: df . -h
       - name: Free disk space
@@ -169,7 +189,7 @@ jobs:
           rm -rf python 
           mkdir -p cpp/build
           cd cpp/build
-          cmake3 -DBUILD_STATIC=ON -DCMAKE_BUILD_TYPE=Release -DTESTS=ON -DCMAKE_TOOLCHAIN_FILE=/usr/local/share/vcpkg/scripts/buildsystems/vcpkg.cmake ../
+          cmake3 -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake -DBUILD_STATIC=ON -DCMAKE_BUILD_TYPE=Release -DTESTS=ON -DCMAKE_TOOLCHAIN_FILE=/usr/local/share/vcpkg/scripts/buildsystems/vcpkg.cmake ../
       - name: FreeDiskSpace
         run: |
           df -lh

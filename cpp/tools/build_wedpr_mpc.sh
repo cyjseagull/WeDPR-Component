@@ -358,7 +358,7 @@ generate_config_ini() {
 
 [hdfs_storage]
     ; the hdfs configuration
-    user = ppc
+    user = root
     name_node = 127.0.0.1
     name_node_port = 9900
     token =
@@ -366,6 +366,16 @@ generate_config_ini() {
     replace-datanode-on-failure = false
     ; the connection-timeout, in ms, default is 1000ms
     connection-timeout = 2000
+    ; enable auth or not, default is false
+    ; enable_krb5_auth = false
+    ; the hdfs kerberos auth principal, used when enable_krb5_auth
+    ; auth_principal = root@NODE.DC1.CONSUL
+    ; the hdfs kerberos auth password, used when enable_krb5_auth
+    ; auth_password =
+    ; the ccache path, used when enable_krb5_auth
+    ; ccache_path = /tmp/krb5cc_ppc_node
+    ; the krb5.conf path
+    ; krb5_conf_path  = conf/krb5.conf
 
 [transport]
    ; the endpoint information
@@ -393,6 +403,31 @@ generate_config_ini() {
     level=info
     ; MB
     max_log_file_size=200
+EOF
+}
+
+generate_krb5_file_template()
+{
+  local filepath=$1
+  mkdir -p $(dirname $filepath)   
+   cat << EOF > "${filepath}"
+[libdefaults]
+ default_realm = NODE.DC1.CONSUL
+ dns_lookup_realm = false
+ dns_lookup_kdc = false
+ ticket_lifetime = 24h
+ renew_lifetime = 7d
+ forwardable = true
+
+[realms]
+ NODE.DC1.CONSUL = {
+  kdc = 
+  admin_server =
+ }
+
+[domain_realm]
+ .node.dc1.consul = NODE.DC1.CONSUL
+ node.dc1.consul = NODE.DC1.CONSUL
 EOF
 }
 
@@ -723,6 +758,7 @@ deploy_nodes()
     private_key=$(generate_private_key "${output_dir}/conf")
     node_id=$(cat "${output_dir}/conf/node.nodeid")
     generate_config_ini "${output_dir}/config.ini"  "${listen_ip}" "${rpc_port}" "${agency_info}" ${agency_id} "${listen_ip}" "${grpc_port}" "${node_id}"
+    generate_krb5_file_template "{output_dir}/conf/krb5.conf"
     print_result
 }
 
