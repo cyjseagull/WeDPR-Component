@@ -16,14 +16,15 @@ SQLALCHEMY_DATABASE_URI: "mysql://[*user_ppcsmodeladm]:[*pass_ppcsmodeladm]@[@43
 HDFS_URL: "http://127.0.0.1:50070"
 # HDFS,
 STORAGE_TYPE: "HDFS"
-HDFS_URL: "http://127.0.0.1:9870"
 HDFS_USER: "root"
 HDFS_HOME: "/user/ppc/model/webank"
 HDFS_ENABLE_AUTH: False
 # the hdfs auth principal
 HDFS_AUTH_PRINCIPAL: "root@NODE.DC1.CONSUL"
-# the auth key-tab path
-HDFS_AUTH_KEYTAB_PATH: "./hdfs-wedpr.keytab"
+# the auth password
+HDFS_AUTH_PASSWORD: ""
+# the host name override
+HDFS_HOSTNAME_OVERRIDE: "wedpr-0001"
 
 JOB_TEMP_DIR: ".cache/job"
 
