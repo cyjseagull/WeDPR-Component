@@ -231,6 +231,17 @@ void MPCService::doRun(const JobInfo& jobInfo)
     std::string outResult;
     execCommand(mpcCmd, outExitStatus, outResult);
 
+    // 4 upload result file
+    std::string resultFileHdfsPath =  jobInfo.outputFilePath;
+    std::string resultFileLocalPath = localPathPrefix + MPC_RESULT_FILE;
+    writeStringToFile(outResult, resultFileLocalPath);
+
+    auto resultFileReader =
+        initialize_lineReader(jobInfo, resultFileLocalPath, DataResourceType::FILE);
+    auto resultFileWriter =
+        initialize_lineWriter(jobInfo, resultFileHdfsPath, DataResourceType::HDFS);
+    readAndSaveFile(resultFileLocalPath, resultFileHdfsPath, resultFileReader, resultFileWriter);
+
     if (outExitStatus != MPC_SUCCESS)
     {
         MPC_LOG(ERROR) << LOG_DESC("[MPCService][doRun]") 
@@ -243,17 +254,6 @@ void MPCService::doRun(const JobInfo& jobInfo)
 
     MPC_LOG(INFO) << LOG_DESC("[MPCService][doRun]") << LOG_KV("jobId", jobId) 
         << LOG_DESC("run mpc job successfully");
-
-    // 4 upload result file
-    std::string resultFileHdfsPath =  jobInfo.outputFilePath;
-    std::string resultFileLocalPath = localPathPrefix + MPC_RESULT_FILE;
-    writeStringToFile(outResult, resultFileLocalPath);
-
-    auto resultFileReader =
-        initialize_lineReader(jobInfo, resultFileLocalPath, DataResourceType::FILE);
-    auto resultFileWriter =
-        initialize_lineWriter(jobInfo, resultFileHdfsPath, DataResourceType::HDFS);
-    readAndSaveFile(resultFileLocalPath, resultFileHdfsPath, resultFileReader, resultFileWriter);
 
     MPC_LOG(INFO) << LOG_DESC("do run mpc") << LOG_KV("jodId", jobInfo.jobId)<< LOG_KV("timecost(ms)", utcSteadyTime() - startT);
 }
