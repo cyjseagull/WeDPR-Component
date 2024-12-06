@@ -653,10 +653,24 @@ void PPCConfig::loadCEMConfig(boost::property_tree::ptree const& _pt)
 
 void PPCConfig::loadMPCConfig(boost::property_tree::ptree const& _pt)
 {
+    // the agencyID
+    m_agencyID = _pt.get<std::string>("agency.id", "");
+    if (m_agencyID.empty())
+    {
+        BOOST_THROW_EXCEPTION(InvalidConfig() << errinfo_comment("Must set agency.id"));
+    }
+
+    PPCConfig_LOG(INFO) << LOG_DESC("load agency id") << LOG_KV("agencyID", m_agencyID);
+
     m_mpcConfig.jobPath = _pt.get<std::string>("mpc.job_path", "./");
     m_mpcConfig.mpcRootPath = _pt.get<std::string>("mpc.mpc_root_path", "./");
     m_mpcConfig.mpcRootPathNoGateway = _pt.get<std::string>("mpc.mpc_root_path_no_gateway", "./");
     m_mpcConfig.readPerBatchLines = _pt.get<std::uint64_t>("mpc.read_per_batch_lines", 100000);
+    m_mpcConfig.spdzConnectedPort = _pt.get<int>("spdz.connected_port", 5894);
+    m_mpcConfig.spdzConnectedIP = _pt.get<std::string>("transport.host_ip", "");
+    
+    PPCConfig_LOG(INFO) << LOG_DESC("spdzConnectedPort") << LOG_KV("spdzConnectedIP", m_mpcConfig.spdzConnectedIP) << LOG_KV("spdzConnectedPort", m_mpcConfig.spdzConnectedPort);
+
     m_mpcConfig.threadPoolSize = _pt.get<int>("mpc.async_thread_pool_size", -1);
     if (m_mpcConfig.threadPoolSize < 0)
     {
