@@ -131,7 +131,6 @@
         },
         "tarscpp",
         "tbb",
-        "libiconv",
         "gsasl"
       ]
     },
