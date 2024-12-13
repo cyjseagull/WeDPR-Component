@@ -67,7 +67,7 @@ CMD ["--version"]
 FROM fiscoorg/wedpr-mpc-base-ubuntu:v3.0.0 as wedpr-mpc-service
 LABEL maintainer=service@webank.com
 
-RUN apt-get -q update && apt-get install -qy --no-install-recommends vim libkrb5-dev python3.11 python3-pip python3-dev telnet tcpdump \
+RUN apt-get -q update && apt-get install -qy --no-install-recommends vim libkrb5-dev python3.11 python3-pip python3-dev telnet tcpdump net-tools\
         && rm -f /usr/bin/python && ln -s /usr/bin/python3.11 /usr/bin/python  \
         && rm -f /usr/bin/python3 && ln -s /usr/bin/python3.11 /usr/bin/python3  \
         && ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
