@@ -11,8 +11,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     SOURCE=${SOURCE_BRANCH:-main}
 
 # install the gateway sdk
-# TODO: replace with pypip
-RUN pip install --no-cache-dir -i https://test.pypi.org/simple/ wedpr-python-gateway-sdk
+RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple wedpr-python-gateway-sdk
 
 # obtain the source, no need to fetch the submodule(vcpkg) here
 RUN git clone https://github.com/WeBankBlockchain/WeDPR-Component.git -b ${SOURCE}
